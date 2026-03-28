@@ -1,5 +1,6 @@
 use std::{
-    fs::{create_dir_all, read, read_dir},
+    env::set_current_dir,
+    fs::{create_dir_all, read, read_dir, remove_dir_all},
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -27,6 +28,27 @@ pub(crate) struct LoadedWorkspace {
     pub(crate) repo: Arc<ReadonlyRepo>,
 }
 
+pub(crate) struct WorkspaceListEntry {
+    pub(crate) name: WorkspaceNameBuf,
+    pub(crate) path: PathBuf,
+    pub(crate) exists_on_disk: bool,
+    pub(crate) is_current: bool,
+    pub(crate) is_repo_host: bool,
+}
+
+pub(crate) struct ForgetResult {
+    pub(crate) name: WorkspaceNameBuf,
+    pub(crate) path: PathBuf,
+    pub(crate) deletion: ForgetDeletion,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum ForgetDeletion {
+    Removed,
+    NotFoundAtInferredPath,
+    KeptRepoHost,
+}
+
 pub(crate) fn load_workspace(start_dir: &Path) -> Result<LoadedWorkspace> {
     let workspace_root = find_workspace_root(start_dir)?;
     let settings = load_settings(workspace_root)?;
@@ -46,8 +68,16 @@ pub(crate) fn create_workspace(
     destination: &Path,
     workspace_name: WorkspaceNameBuf,
 ) -> Result<()> {
-    if current.repo.view().get_wc_commit_id(&workspace_name).is_some() {
-        bail!("workspace named '{}' already exists", workspace_name.as_symbol());
+    if current
+        .repo
+        .view()
+        .get_wc_commit_id(&workspace_name)
+        .is_some()
+    {
+        bail!(
+            "workspace named '{}' already exists",
+            workspace_name.as_symbol()
+        );
     }
 
     prepare_destination(destination)?;
@@ -71,6 +101,188 @@ pub(crate) fn create_workspace(
     new_workspace.check_out(new_repo.op_id().clone(), None, &new_wc_commit)?;
 
     Ok(())
+}
+
+pub(crate) fn forget_workspaces(
+    current: &LoadedWorkspace,
+    target_names: &[WorkspaceNameBuf],
+    cwd: &Path,
+    repo_root: &Path,
+    parent_dir: &Path,
+) -> Result<Vec<ForgetResult>> {
+    let mut known_targets = Vec::new();
+    for name in target_names {
+        if current.repo.view().get_wc_commit_id(name).is_none() {
+            eprintln!("Warning: no such workspace: {}", name.as_symbol());
+            continue;
+        }
+        known_targets.push(name.clone());
+    }
+
+    if known_targets.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let repo_host_name = repo_host_workspace_name(current, repo_root);
+    let mut deletion_plans = Vec::new();
+    for name in &known_targets {
+        let path = infer_workspace_path(
+            current,
+            name,
+            repo_root,
+            parent_dir,
+            repo_host_name.as_ref(),
+        );
+        deletion_plans.push((name.clone(), deletion_plan(path)));
+    }
+
+    let mut tx = current.repo.start_transaction();
+    for name in &known_targets {
+        tx.repo_mut().remove_wc_commit(name)?;
+    }
+    tx.repo_mut().rebase_descendants()?;
+
+    let description = if let [name] = known_targets.as_slice() {
+        format!("forget workspace {}", name.as_symbol())
+    } else {
+        format!(
+            "forget workspaces {}",
+            known_targets
+                .iter()
+                .map(|name| name.as_str().to_owned())
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    };
+    tx.commit(description)?;
+
+    maybe_move_out_of_deleted_workspace(cwd, &deletion_plans)?;
+
+    let mut results = Vec::new();
+    for (name, plan) in deletion_plans {
+        let (path, deletion) = match plan {
+            DeletionPlan::Remove(path) => {
+                if path.exists() {
+                    remove_dir_all(&path)
+                        .with_context(|| format!("failed to remove {}", path.display()))?;
+                    (path, ForgetDeletion::Removed)
+                } else {
+                    (path, ForgetDeletion::NotFoundAtInferredPath)
+                }
+            }
+            DeletionPlan::KeepRepoHost(path) => (path, ForgetDeletion::KeptRepoHost),
+        };
+        results.push(ForgetResult {
+            name,
+            path,
+            deletion,
+        });
+    }
+
+    Ok(results)
+}
+
+pub(crate) fn list_workspaces(
+    current: &LoadedWorkspace,
+    repo_root: &Path,
+    parent_dir: &Path,
+) -> Result<Vec<WorkspaceListEntry>> {
+    let repo_host_name = repo_host_workspace_name(current, repo_root);
+
+    Ok(current
+        .repo
+        .view()
+        .wc_commit_ids()
+        .keys()
+        .map(|name| {
+            let path = infer_workspace_path(
+                current,
+                name,
+                repo_root,
+                parent_dir,
+                repo_host_name.as_ref(),
+            );
+            WorkspaceListEntry {
+                name: name.clone(),
+                exists_on_disk: path.exists(),
+                is_current: name == current.workspace.workspace_name(),
+                is_repo_host: repo_host_name
+                    .as_ref()
+                    .is_some_and(|repo_host_name| name == repo_host_name),
+                path,
+            }
+        })
+        .collect())
+}
+
+pub(crate) fn repo_root_from_repo_path(repo_path: &Path) -> Result<PathBuf> {
+    repo_path
+        .parent()
+        .and_then(Path::parent)
+        .map(Path::to_path_buf)
+        .context("repo path is missing its workspace root")
+}
+
+fn maybe_move_out_of_deleted_workspace(
+    cwd: &Path,
+    plans: &[(WorkspaceNameBuf, DeletionPlan)],
+) -> Result<()> {
+    for (_, plan) in plans {
+        let DeletionPlan::Remove(path) = plan else {
+            continue;
+        };
+        if cwd.starts_with(path) {
+            let parent = path
+                .parent()
+                .context("workspace to delete has no parent directory")?;
+            set_current_dir(parent)
+                .with_context(|| format!("failed to switch to {}", parent.display()))?;
+            break;
+        }
+    }
+    Ok(())
+}
+
+fn deletion_plan(path: PathBuf) -> DeletionPlan {
+    if path.join(".jj").join("repo").is_dir() {
+        DeletionPlan::KeepRepoHost(path)
+    } else {
+        DeletionPlan::Remove(path)
+    }
+}
+
+enum DeletionPlan {
+    Remove(PathBuf),
+    KeepRepoHost(PathBuf),
+}
+
+fn repo_host_workspace_name(
+    current: &LoadedWorkspace,
+    repo_root: &Path,
+) -> Option<WorkspaceNameBuf> {
+    if current.workspace.workspace_root() == repo_root {
+        return Some(current.workspace.workspace_name().to_owned());
+    }
+
+    load_workspace(repo_root)
+        .ok()
+        .map(|workspace| workspace.workspace.workspace_name().to_owned())
+}
+
+fn infer_workspace_path(
+    current: &LoadedWorkspace,
+    workspace_name: &WorkspaceName,
+    repo_root: &Path,
+    parent_dir: &Path,
+    repo_host_name: Option<&WorkspaceNameBuf>,
+) -> PathBuf {
+    if workspace_name == current.workspace.workspace_name() {
+        return current.workspace.workspace_root().to_path_buf();
+    }
+    if repo_host_name.is_some_and(|repo_host_name| workspace_name == repo_host_name) {
+        return repo_root.to_path_buf();
+    }
+    parent_dir.join(workspace_name.as_str())
 }
 
 fn prepare_destination(destination: &Path) -> Result<()> {
@@ -192,7 +404,8 @@ fn load_user_config(config: &mut StackedConfig) -> Result<()> {
     let home = home_dir();
     let candidates: Vec<PathBuf> = [
         home.as_ref().map(|home| home.join(".jjconfig.toml")),
-        home.as_ref().map(|home| home.join(".config/jj/config.toml")),
+        home.as_ref()
+            .map(|home| home.join(".config/jj/config.toml")),
         config_dir().map(|config_dir| config_dir.join("jj/config.toml")),
     ]
     .into_iter()
@@ -231,13 +444,7 @@ fn map_workspace_load_error(err: WorkspaceLoadError) -> Error {
 
 #[cfg(test)]
 mod tests {
-
-    #[cfg(test)]
-    use std::fs::create_dir_all;
-
-    use jj_lib::config::StackedConfig;
-    #[cfg(test)]
-    use jj_lib::ref_name;
+    use jj_lib::{config::StackedConfig, ref_name};
     use tempfile::TempDir;
 
     use super::*;
@@ -274,7 +481,11 @@ mod tests {
 
         let loaded = LoadedWorkspace { workspace, repo };
         let destination = temp_dir.path().join("secondary");
-        create_workspace(&loaded, &destination, ref_name::WorkspaceNameBuf::from("secondary"))?;
+        create_workspace(
+            &loaded,
+            &destination,
+            ref_name::WorkspaceNameBuf::from("secondary"),
+        )?;
 
         let secondary = load_workspace(&destination)?;
         let wc_commit_id = secondary
@@ -284,6 +495,78 @@ mod tests {
             .context("missing working-copy commit for secondary workspace")?;
         let wc_commit = secondary.repo.store().get_commit(wc_commit_id)?;
         assert_eq!(wc_commit.parent_ids(), vec![parent_commit.id().clone()]);
+        Ok(())
+    }
+
+    #[test]
+    fn forget_workspace_removes_linked_workspace_directory() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let source_root = temp_dir.path().join("source");
+        let parent_dir = temp_dir.path().join("workspaces");
+        let secondary_root = parent_dir.join("secondary");
+        create_dir_all(&source_root)?;
+        create_dir_all(&parent_dir)?;
+
+        let settings = test_settings();
+        let (workspace, repo) = Workspace::init_simple(&settings, &source_root)?;
+        let loaded = LoadedWorkspace { workspace, repo };
+        create_workspace(
+            &loaded,
+            &secondary_root,
+            WorkspaceNameBuf::from("secondary"),
+        )?;
+
+        let secondary = load_workspace(&secondary_root)?;
+        let results = forget_workspaces(
+            &secondary,
+            &[WorkspaceNameBuf::from("secondary")],
+            temp_dir.path(),
+            &source_root,
+            &parent_dir,
+        )?;
+        assert_eq!(results.len(), 1);
+        assert!(!secondary_root.exists());
+        assert!(
+            secondary
+                .repo
+                .view()
+                .get_wc_commit_id(&WorkspaceNameBuf::from("secondary"))
+                .is_some()
+        );
+
+        let default_loaded = load_workspace(&source_root)?;
+        assert!(
+            default_loaded
+                .repo
+                .view()
+                .get_wc_commit_id(&WorkspaceNameBuf::from("secondary"))
+                .is_none()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn forget_repo_host_keeps_directory() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let source_root = temp_dir.path().join("source");
+        let parent_dir = temp_dir.path().join("workspaces");
+        create_dir_all(&source_root)?;
+        create_dir_all(&parent_dir)?;
+
+        let settings = test_settings();
+        let (workspace, repo) = Workspace::init_simple(&settings, &source_root)?;
+        let loaded = LoadedWorkspace { workspace, repo };
+
+        let results = forget_workspaces(
+            &loaded,
+            &[WorkspaceNameBuf::from("default")],
+            temp_dir.path(),
+            &source_root,
+            &parent_dir,
+        )?;
+        assert_eq!(results.len(), 1);
+        assert!(matches!(results[0].deletion, ForgetDeletion::KeptRepoHost));
+        assert!(source_root.exists());
         Ok(())
     }
 }
