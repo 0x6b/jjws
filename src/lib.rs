@@ -48,28 +48,23 @@ pub fn add(options: AddOptions) -> Result<()> {
         current.workspace.workspace_name(),
     )?;
 
-    let tab_opened = if options.no_tab {
-        false
-    } else {
-        match open_tab(&destination) {
-            Ok(Some(_terminal_id)) => true,
+    let tab_opened = !options.no_tab
+        && match open_tab(&destination) {
+            Ok(Some(_)) => true,
             Ok(None) => false,
             Err(err) => {
                 eprintln!("Warning: failed to open Ghostty tab: {err:#}");
                 false
             }
-        }
-    };
+        };
 
     println!("Created workspace at {}", destination.display());
-    println!(
-        "Symlinked {symlinked} jj-ignored {}",
-        if symlinked == 1 { "path" } else { "paths" }
-    );
-    if tab_opened {
-        println!("Opened and focused a Ghostty tab");
-    } else if !options.no_tab {
-        println!("Ghostty tab was not opened");
+    let noun = if symlinked == 1 { "path" } else { "paths" };
+    println!("Symlinked {symlinked} jj-ignored {noun}");
+    match (tab_opened, options.no_tab) {
+        (true, _) => println!("Opened and focused a Ghostty tab"),
+        (false, false) => println!("Ghostty tab was not opened"),
+        _ => {}
     }
 
     Ok(())
@@ -98,36 +93,20 @@ pub fn forget(options: ForgetOptions) -> Result<()> {
         return Ok(());
     }
 
-    let kept_repo_host = results
-        .iter()
-        .any(|result| matches!(result.deletion, ForgetDeletion::KeptRepoHost));
-
-    for result in &results {
-        match result.deletion {
-            ForgetDeletion::Removed => {
-                println!(
-                    "Forgot workspace {} and removed {}",
-                    result.name.as_symbol(),
-                    result.path.display()
-                );
-            }
+    let mut kept_repo_host = false;
+    for r in &results {
+        let (name, path) = (r.name.as_symbol(), r.path.display());
+        match r.deletion {
+            ForgetDeletion::Removed => println!("Forgot workspace {name} and removed {path}"),
             ForgetDeletion::NotFoundAtInferredPath => {
-                println!(
-                    "Forgot workspace {} but the inferred directory was not found at {}",
-                    result.name.as_symbol(),
-                    result.path.display()
-                );
+                println!("Forgot workspace {name} but the inferred directory was not found at {path}");
             }
             ForgetDeletion::KeptRepoHost => {
-                println!(
-                    "Forgot workspace {} but kept {} because it hosts the repo",
-                    result.name.as_symbol(),
-                    result.path.display()
-                );
+                println!("Forgot workspace {name} but kept {path} because it hosts the repo");
+                kept_repo_host = true;
             }
         }
     }
-
     if kept_repo_host {
         println!("The repo still lives under {}", repo_root.display());
     }

@@ -17,13 +17,7 @@ pub fn open_tab(workspace_path: &Path) -> Result<Option<String>> {
 }
 
 fn is_available() -> bool {
-    if !cfg!(target_os = "macos") {
-        return false;
-    }
-
-    var("TERM_PROGRAM")
-        .map(|value| value == "ghostty")
-        .unwrap_or(false)
+    cfg!(target_os = "macos") && var("TERM_PROGRAM").is_ok_and(|v| v == "ghostty")
 }
 
 fn build_tab_script(workspace_path: &str, command: &str) -> String {

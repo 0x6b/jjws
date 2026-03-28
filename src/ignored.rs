@@ -250,15 +250,8 @@ impl TrackedPaths {
 
 #[cfg(test)]
 mod tests {
+    use std::{collections, fs::create_dir_all, fs::write};
 
-    #[cfg(test)]
-    use std::collections;
-    #[cfg(test)]
-    use std::fs::create_dir_all;
-    #[cfg(test)]
-    use std::fs::write;
-
-    #[cfg(test)]
     use jj_lib::gitignore;
     use tempfile::TempDir;
 

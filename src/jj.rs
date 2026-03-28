@@ -5,7 +5,7 @@ use std::{
     sync::Arc,
 };
 
-use anyhow::{Context, Error, Result, bail};
+use anyhow::{Context, Result, bail};
 use dirs::{config_dir, home_dir};
 use dunce::canonicalize;
 use gethostname::gethostname;
@@ -18,7 +18,7 @@ use jj_lib::{
     rewrite::merge_commit_trees,
     settings::UserSettings,
     workspace::{
-        Workspace, WorkspaceLoadError, default_working_copy_factories, default_working_copy_factory,
+        Workspace, default_working_copy_factories, default_working_copy_factory,
     },
 };
 use pollster::FutureExt as _;
@@ -49,6 +49,16 @@ pub(crate) enum ForgetDeletion {
     KeptRepoHost,
 }
 
+impl ForgetDeletion {
+    fn plan(path: &Path) -> Self {
+        if path.join(".jj").join("repo").is_dir() {
+            Self::KeptRepoHost
+        } else {
+            Self::Removed
+        }
+    }
+}
+
 pub(crate) fn load_workspace(start_dir: &Path) -> Result<LoadedWorkspace> {
     let workspace_root = find_workspace_root(start_dir)?;
     let settings = load_settings(workspace_root)?;
@@ -58,7 +68,7 @@ pub(crate) fn load_workspace(start_dir: &Path) -> Result<LoadedWorkspace> {
         &StoreFactories::default(),
         &default_working_copy_factories(),
     )
-    .map_err(map_workspace_load_error)?;
+    .map_err(anyhow::Error::from)?;
     let repo = workspace.repo_loader().load_at_head()?;
     Ok(LoadedWorkspace { workspace, repo })
 }
@@ -124,17 +134,20 @@ pub(crate) fn forget_workspaces(
     }
 
     let repo_host_name = repo_host_workspace_name(current, repo_root);
-    let mut deletion_plans = Vec::new();
-    for name in &known_targets {
-        let path = infer_workspace_path(
-            current,
-            name,
-            repo_root,
-            parent_dir,
-            repo_host_name.as_ref(),
-        );
-        deletion_plans.push((name.clone(), deletion_plan(path)));
-    }
+    let planned: Vec<_> = known_targets
+        .iter()
+        .map(|name| {
+            let path = infer_workspace_path(
+                current,
+                name,
+                repo_root,
+                parent_dir,
+                repo_host_name.as_ref(),
+            );
+            let deletion = ForgetDeletion::plan(&path);
+            (name.clone(), path, deletion)
+        })
+        .collect();
 
     let mut tx = current.repo.start_transaction();
     for name in &known_targets {
@@ -142,44 +155,40 @@ pub(crate) fn forget_workspaces(
     }
     tx.repo_mut().rebase_descendants()?;
 
-    let description = if let [name] = known_targets.as_slice() {
-        format!("forget workspace {}", name.as_symbol())
-    } else {
-        format!(
+    let description = match known_targets.as_slice() {
+        [name] => format!("forget workspace {}", name.as_symbol()),
+        names => format!(
             "forget workspaces {}",
-            known_targets
-                .iter()
-                .map(|name| name.as_str().to_owned())
-                .collect::<Vec<_>>()
-                .join(", ")
-        )
+            names.iter().map(|n| n.as_str()).collect::<Vec<_>>().join(", ")
+        ),
     };
     tx.commit(description)?;
 
-    maybe_move_out_of_deleted_workspace(cwd, &deletion_plans)?;
-
-    let mut results = Vec::new();
-    for (name, plan) in deletion_plans {
-        let (path, deletion) = match plan {
-            DeletionPlan::Remove(path) => {
-                if path.exists() {
-                    remove_dir_all(&path)
-                        .with_context(|| format!("failed to remove {}", path.display()))?;
-                    (path, ForgetDeletion::Removed)
-                } else {
-                    (path, ForgetDeletion::NotFoundAtInferredPath)
-                }
-            }
-            DeletionPlan::KeepRepoHost(path) => (path, ForgetDeletion::KeptRepoHost),
-        };
-        results.push(ForgetResult {
-            name,
-            path,
-            deletion,
-        });
+    // Move cwd out before deleting
+    for (_, path, deletion) in &planned {
+        if matches!(deletion, ForgetDeletion::Removed) && cwd.starts_with(path) {
+            let parent = path.parent().context("workspace to delete has no parent directory")?;
+            set_current_dir(parent)
+                .with_context(|| format!("failed to switch to {}", parent.display()))?;
+            break;
+        }
     }
 
-    Ok(results)
+    planned
+        .into_iter()
+        .map(|(name, path, deletion)| {
+            let deletion = match deletion {
+                ForgetDeletion::Removed if path.exists() => {
+                    remove_dir_all(&path)
+                        .with_context(|| format!("failed to remove {}", path.display()))?;
+                    ForgetDeletion::Removed
+                }
+                ForgetDeletion::Removed => ForgetDeletion::NotFoundAtInferredPath,
+                other => other,
+            };
+            Ok(ForgetResult { name, path, deletion })
+        })
+        .collect()
 }
 
 pub(crate) fn list_workspaces(
@@ -223,39 +232,6 @@ pub(crate) fn repo_root_from_repo_path(repo_path: &Path) -> Result<PathBuf> {
         .context("repo path is missing its workspace root")
 }
 
-fn maybe_move_out_of_deleted_workspace(
-    cwd: &Path,
-    plans: &[(WorkspaceNameBuf, DeletionPlan)],
-) -> Result<()> {
-    for (_, plan) in plans {
-        let DeletionPlan::Remove(path) = plan else {
-            continue;
-        };
-        if cwd.starts_with(path) {
-            let parent = path
-                .parent()
-                .context("workspace to delete has no parent directory")?;
-            set_current_dir(parent)
-                .with_context(|| format!("failed to switch to {}", parent.display()))?;
-            break;
-        }
-    }
-    Ok(())
-}
-
-fn deletion_plan(path: PathBuf) -> DeletionPlan {
-    if path.join(".jj").join("repo").is_dir() {
-        DeletionPlan::KeepRepoHost(path)
-    } else {
-        DeletionPlan::Remove(path)
-    }
-}
-
-enum DeletionPlan {
-    Remove(PathBuf),
-    KeepRepoHost(PathBuf),
-}
-
 fn repo_host_workspace_name(
     current: &LoadedWorkspace,
     repo_root: &Path,
@@ -287,25 +263,15 @@ fn infer_workspace_path(
 
 fn prepare_destination(destination: &Path) -> Result<()> {
     if !destination.exists() {
-        create_dir_all(destination)
-            .with_context(|| format!("failed to create {}", destination.display()))?;
-        return Ok(());
+        return create_dir_all(destination)
+            .with_context(|| format!("failed to create {}", destination.display()));
     }
-
     if !destination.is_dir() {
         bail!("destination path exists and is not a directory");
     }
-
-    if read_dir(destination)
-        .with_context(|| format!("failed to read {}", destination.display()))?
-        .next()
-        .transpose()
-        .with_context(|| format!("failed to read {}", destination.display()))?
-        .is_some()
-    {
+    if read_dir(destination)?.next().is_some() {
         bail!("destination path exists and is not an empty directory");
     }
-
     Ok(())
 }
 
@@ -402,21 +368,14 @@ fn load_settings(workspace_root: &Path) -> Result<UserSettings> {
 
 fn load_user_config(config: &mut StackedConfig) -> Result<()> {
     let home = home_dir();
-    let candidates: Vec<PathBuf> = [
-        home.as_ref().map(|home| home.join(".jjconfig.toml")),
-        home.as_ref()
-            .map(|home| home.join(".config/jj/config.toml")),
-        config_dir().map(|config_dir| config_dir.join("jj/config.toml")),
-    ]
-    .into_iter()
-    .flatten()
-    .collect();
+    let candidates = [
+        home.as_ref().map(|h| h.join(".jjconfig.toml")),
+        home.as_ref().map(|h| h.join(".config/jj/config.toml")),
+        config_dir().map(|d| d.join("jj/config.toml")),
+    ];
 
-    for path in candidates {
-        if path.exists() {
-            let layer = ConfigLayer::load_from_file(ConfigSource::User, path)?;
-            config.add_layer(layer);
-        }
+    for path in candidates.into_iter().flatten().filter(|p| p.exists()) {
+        config.add_layer(ConfigLayer::load_from_file(ConfigSource::User, path)?);
     }
 
     Ok(())
@@ -436,10 +395,6 @@ fn resolve_repo_path(workspace_root: &Path) -> Result<PathBuf> {
             .with_context(|| format!("failed to resolve {}", repo_path.display()));
     }
     bail!("workspace metadata is missing .jj/repo");
-}
-
-fn map_workspace_load_error(err: WorkspaceLoadError) -> Error {
-    err.into()
 }
 
 #[cfg(test)]
