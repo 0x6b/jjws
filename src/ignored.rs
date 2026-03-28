@@ -161,7 +161,10 @@ fn walk_ignored_paths(
         let is_ignored = current_ignores.matches(&ignore_key);
 
         if is_dir {
-            if is_ignored && !tracked_paths.has_tracked_descendants(&relative_path) {
+            let is_unconditional = is_unconditional_symlink(relative_dir, file_name, true);
+            if is_unconditional
+                || (is_ignored && !tracked_paths.has_tracked_descendants(&relative_path))
+            {
                 ignored_paths.push(PathBuf::from(&relative_path));
                 continue;
             }
@@ -173,8 +176,11 @@ fn walk_ignored_paths(
                 current_ignores.clone(),
                 ignored_paths,
             )?;
-        } else if is_ignored && !tracked_paths.contains(&relative_path) {
-            ignored_paths.push(PathBuf::from(relative_path));
+        } else {
+            let is_unconditional = is_unconditional_symlink(relative_dir, file_name, false);
+            if is_unconditional || (is_ignored && !tracked_paths.contains(&relative_path)) {
+                ignored_paths.push(PathBuf::from(relative_path));
+            }
         }
     }
 
@@ -194,6 +200,31 @@ fn load_directory_gitignore(
 
 fn should_skip_root_entry(source_root: &Path, current_dir: &Path, file_name: &OsStr) -> bool {
     current_dir == source_root && (file_name == ".jj" || file_name == ".git")
+}
+
+struct UnconditionalPattern {
+    name: &'static str,
+    is_dir: bool,
+    root_only: bool,
+}
+
+const UNCONDITIONAL_SYMLINKS: &[UnconditionalPattern] = &[
+    UnconditionalPattern { name: "CLAUDE.md", is_dir: false, root_only: true },
+    UnconditionalPattern { name: ".mcp.json", is_dir: false, root_only: true },
+    UnconditionalPattern { name: "AGENTS.md", is_dir: false, root_only: true },
+    UnconditionalPattern { name: ".env", is_dir: false, root_only: true },
+    UnconditionalPattern { name: ".env.local", is_dir: false, root_only: true },
+    UnconditionalPattern { name: ".env.development", is_dir: false, root_only: true },
+    UnconditionalPattern { name: "CLAUDE.local.md", is_dir: false, root_only: false },
+    UnconditionalPattern { name: "scratch", is_dir: true, root_only: false },
+    UnconditionalPattern { name: ".pi", is_dir: true, root_only: false },
+];
+
+fn is_unconditional_symlink(relative_dir: &str, file_name: &str, is_dir: bool) -> bool {
+    let is_root = relative_dir.is_empty();
+    UNCONDITIONAL_SYMLINKS
+        .iter()
+        .any(|p| p.name == file_name && p.is_dir == is_dir && (is_root || !p.root_only))
 }
 
 #[cfg(unix)]
@@ -255,6 +286,41 @@ mod tests {
             &gitignore::GitIgnoreFile::empty(),
         )?;
         assert_eq!(ignored_paths, vec![PathBuf::from("node_modules")]);
+        Ok(())
+    }
+
+    #[test]
+    fn collect_ignored_paths_includes_unconditional_paths_even_when_not_ignored() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let root = temp_dir.path();
+        // No .gitignore — nothing is ignored via gitignore rules
+        write(root.join("CLAUDE.md"), "instructions")?;
+        write(root.join(".mcp.json"), "{}")?;
+        write(root.join("AGENTS.md"), "agents")?;
+        write(root.join(".env"), "SECRET=x")?;
+        create_dir_all(root.join("scratch"))?;
+        write(root.join("scratch").join("notes.txt"), "tmp")?;
+        create_dir_all(root.join(".pi"))?;
+        create_dir_all(root.join("sub"))?;
+        write(root.join("sub").join("CLAUDE.local.md"), "local")?;
+        // Non-special file should NOT appear
+        write(root.join("README.md"), "hello")?;
+
+        let tracked = TrackedPaths {
+            tracked_paths: collections::HashSet::from(["CLAUDE.md".into()]),
+            tracked_dirs: collections::HashSet::new(),
+        };
+        let paths =
+            collect_ignored_paths(root, &tracked, &gitignore::GitIgnoreFile::empty())?;
+
+        assert!(paths.contains(&PathBuf::from("CLAUDE.md")));
+        assert!(paths.contains(&PathBuf::from(".mcp.json")));
+        assert!(paths.contains(&PathBuf::from("AGENTS.md")));
+        assert!(paths.contains(&PathBuf::from(".env")));
+        assert!(paths.contains(&PathBuf::from("scratch")));
+        assert!(paths.contains(&PathBuf::from(".pi")));
+        assert!(paths.contains(&PathBuf::from("sub/CLAUDE.local.md")));
+        assert!(!paths.contains(&PathBuf::from("README.md")));
         Ok(())
     }
 
