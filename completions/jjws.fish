@@ -2,7 +2,7 @@
 
 # Helper: extract workspace names from `jjws list` output
 function __jjws_workspaces
-    jjws list 2>/dev/null | string replace -r '^[* ] (\S+)\t.*' '$1'
+    jjws list 2>/dev/null | string replace -r '^[* ] ([^\t]+)\t.*' '$1'
 end
 
 # Disable file completions by default
