@@ -7,7 +7,7 @@ use jjws::{AddOptions, add, cd, forget, list};
 #[derive(Parser, Debug)]
 #[command(about, version)]
 struct Cli {
-    /// Root directory where workspaces are created as <DIR>/<name>.
+    /// Root directory where workspaces are created as <DIR>/<repo>/<name>.
     /// Defaults to <data-dir>/jjws (e.g. ~/Library/Application Support/jjws)
     #[arg(long, global = true, value_name = "DIR")]
     workspace_root: Option<PathBuf>,
