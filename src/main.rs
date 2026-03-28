@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use jjws::{AddOptions, add, forget, list};
+use jjws::{AddOptions, add, cd, forget, list};
 
 #[derive(Parser, Debug)]
 #[command(about, version)]
@@ -30,6 +30,11 @@ enum Command {
         #[arg(long)]
         no_tab: bool,
     },
+    /// Open a Ghostty tab at a workspace (defaults to repo-host)
+    Cd {
+        /// Workspace name (defaults to repo-host workspace)
+        name: Option<String>,
+    },
     /// List workspaces associated with the repo
     List,
     /// Forget workspaces, then remove their directories when safe.
@@ -49,5 +54,6 @@ fn main() -> Result<()> {
         Command::Add { name, command, no_tab } => add(AddOptions { name, command, no_tab }, ws_root),
         Command::Forget { workspaces } => forget(workspaces, ws_root),
         Command::List => list(ws_root),
+        Command::Cd { name } => cd(name.as_deref(), ws_root),
     }
 }

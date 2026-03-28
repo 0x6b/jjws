@@ -231,6 +231,27 @@ pub(crate) fn list_workspaces(
         .collect()
 }
 
+pub(crate) fn locate_workspace(
+    current: &LoadedWorkspace,
+    name: &WorkspaceName,
+    repo_root: &Path,
+    workspace_root: &Path,
+) -> Result<PathBuf> {
+    if current.repo.view().get_wc_commit_id(name).is_none() {
+        bail!("no such workspace: {}", name.as_symbol());
+    }
+    let locator = WorkspaceLocator::new(current, repo_root, workspace_root);
+    let path = locator.path(name);
+    if !path.exists() {
+        bail!(
+            "workspace {} maps to {} but the directory does not exist",
+            name.as_symbol(),
+            path.display()
+        );
+    }
+    Ok(path)
+}
+
 pub(crate) fn repo_root_from_repo_path(repo_path: &Path) -> Result<PathBuf> {
     repo_path
         .parent()

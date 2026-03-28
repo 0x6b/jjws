@@ -12,7 +12,7 @@ use ghostty::open_tab;
 use ignored::symlink_ignored_paths;
 use jj::{
     ForgetDeletion, LoadedWorkspace, create_workspace, forget_workspaces, list_workspaces,
-    load_workspace, repo_root_from_repo_path,
+    load_workspace, locate_workspace, repo_root_from_repo_path,
 };
 use jj_lib::ref_name::WorkspaceNameBuf;
 
@@ -89,6 +89,27 @@ pub fn forget(workspaces: Vec<String>, workspace_root: Option<&Path>) -> Result<
         println!("The repo still lives under {}", ctx.repo_root.display());
     }
 
+    Ok(())
+}
+
+pub fn cd(name: Option<&str>, workspace_root: Option<&Path>) -> Result<()> {
+    let ctx = CommandContext::load(workspace_root)?;
+    let path = match name {
+        Some(name) => {
+            let workspace_name = WorkspaceNameBuf::from(name);
+            locate_workspace(&ctx.current, &workspace_name, &ctx.repo_root, &ctx.workspace_root)?
+        }
+        None => ctx.repo_root.clone(),
+    };
+
+    match open_tab(&path) {
+        Ok(Some(_)) => println!("Opened Ghostty tab at {}", path.display()),
+        Ok(None) => println!("{}", path.display()),
+        Err(err) => {
+            eprintln!("Warning: failed to open Ghostty tab: {err:#}");
+            println!("{}", path.display());
+        }
+    }
     Ok(())
 }
 
