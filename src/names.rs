@@ -1,0 +1,73 @@
+use std::time::SystemTime;
+
+static ADJECTIVES: &[&str] = &[
+    "bold", "brave", "bright", "calm", "clever",
+    "cool", "daring", "eager", "fair", "fierce",
+    "fleet", "free", "gentle", "glad", "golden",
+    "grand", "happy", "hardy", "keen", "kind",
+    "lively", "lucky", "mellow", "merry", "mighty",
+    "noble", "plucky", "proud", "quick", "quiet",
+    "rapid", "ready", "sharp", "sleek", "sleepy",
+    "smooth", "snappy", "snowy", "spry", "steady",
+    "stoic", "sunny", "swift", "tender", "tidy",
+    "vivid", "warm", "wild", "witty", "zesty",
+];
+
+static ANIMALS: &[&str] = &[
+    "alpaca", "badger", "bear", "bison", "bobcat",
+    "bunny", "caribou", "cat", "cobra", "condor",
+    "corgi", "crane", "crow", "deer", "dingo",
+    "eagle", "falcon", "ferret", "finch", "fox",
+    "gecko", "goose", "hawk", "heron", "horse",
+    "husky", "ibis", "impala", "jackal", "jaguar",
+    "koala", "lemur", "lion", "llama", "lynx",
+    "moose", "newt", "okapi", "otter", "owl",
+    "panda", "parrot", "puma", "quail", "raven",
+    "robin", "salmon", "seal", "stork", "swan",
+    "tiger", "toad", "viper", "whale", "wolf",
+];
+
+pub fn generate(exists: impl Fn(&str) -> bool) -> String {
+    let nanos = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap_or_default()
+        .subsec_nanos() as usize;
+
+    let adj = ADJECTIVES[nanos % ADJECTIVES.len()];
+    let animal = ANIMALS[(nanos / ADJECTIVES.len()) % ANIMALS.len()];
+    let base = format!("{adj}-{animal}");
+
+    if !exists(&base) {
+        return base;
+    }
+
+    let mut suffix = 2;
+    loop {
+        let candidate = format!("{base}{suffix}");
+        if !exists(&candidate) {
+            return candidate;
+        }
+        suffix += 1;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn generate_returns_adjective_hyphen_animal() {
+        let name = generate(|_| false);
+        let parts: Vec<&str> = name.splitn(2, '-').collect();
+        assert_eq!(parts.len(), 2, "expected adjective-animal, got: {name}");
+        assert!(ADJECTIVES.contains(&parts[0]), "unknown adjective: {}", parts[0]);
+        assert!(ANIMALS.contains(&parts[1]), "unknown animal: {}", parts[1]);
+    }
+
+    #[test]
+    fn generate_appends_number_on_collision() {
+        let first = generate(|_| false);
+        let name = generate(|candidate| candidate == first || candidate == format!("{first}2"));
+        assert_eq!(name, format!("{first}3"));
+    }
+}

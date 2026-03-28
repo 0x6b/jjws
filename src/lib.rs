@@ -1,6 +1,7 @@
 mod ghostty;
 mod ignored;
 mod jj;
+mod names;
 
 use std::{
     env::current_dir,
