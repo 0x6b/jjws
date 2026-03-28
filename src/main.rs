@@ -2,10 +2,10 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use jjws::{AddOptions, ForgetOptions, add, forget, list};
+use jjws::{AddOptions, add, forget, list};
 
 #[derive(Parser, Debug)]
-#[command(about = "Manage jj workspaces with a few local conveniences", version)]
+#[command(about, version)]
 struct Cli {
     /// Root directory where workspaces are created as <DIR>/<name>.
     /// Defaults to <data-dir>/jjws (e.g. ~/Library/Application Support/jjws)
@@ -29,9 +29,11 @@ enum Command {
     },
     /// List workspaces associated with the repo
     List,
-    /// Forget workspaces, then remove their directories when safe
+    /// Forget workspaces, then remove their directories when safe.
+    /// Must be run from the repo-host workspace.
     Forget {
-        /// Workspace names to forget. Defaults to the current workspace.
+        /// Workspace names to forget
+        #[arg(required = true)]
         workspaces: Vec<String>,
     },
 }
@@ -42,7 +44,7 @@ fn main() -> Result<()> {
 
     match cli.command {
         Command::Add { name, no_tab } => add(AddOptions { name, no_tab }, ws_root),
-        Command::Forget { workspaces } => forget(ForgetOptions { workspaces }, ws_root),
+        Command::Forget { workspaces } => forget(workspaces, ws_root),
         Command::List => list(ws_root),
     }
 }

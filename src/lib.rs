@@ -7,7 +7,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use ghostty::open_tab;
 use ignored::symlink_ignored_paths;
 use jj::{
@@ -19,10 +19,6 @@ use jj_lib::ref_name::WorkspaceNameBuf;
 pub struct AddOptions {
     pub name: String,
     pub no_tab: bool,
-}
-
-pub struct ForgetOptions {
-    pub workspaces: Vec<String>,
 }
 
 pub fn add(options: AddOptions, workspace_root: Option<&Path>) -> Result<()> {
@@ -61,9 +57,18 @@ pub fn add(options: AddOptions, workspace_root: Option<&Path>) -> Result<()> {
     Ok(())
 }
 
-pub fn forget(options: ForgetOptions, workspace_root: Option<&Path>) -> Result<()> {
+pub fn forget(workspaces: Vec<String>, workspace_root: Option<&Path>) -> Result<()> {
     let ctx = CommandContext::load(workspace_root)?;
-    let target_names = ctx.workspace_names_or_current(&options.workspaces);
+    if ctx.current.workspace.workspace_root() != ctx.repo_root {
+        bail!(
+            "forget must be run from the repo-host workspace ({})",
+            ctx.repo_root.display()
+        );
+    }
+    let target_names: Vec<WorkspaceNameBuf> = workspaces
+        .iter()
+        .map(|name| WorkspaceNameBuf::from(name.as_str()))
+        .collect();
     let results =
         forget_workspaces(&ctx.current, &target_names, &ctx.cwd, &ctx.repo_root, &ctx.workspace_root)?;
 
@@ -108,16 +113,6 @@ impl CommandContext {
         Ok(Self { cwd, current, repo_root, workspace_root })
     }
 
-    fn workspace_names_or_current(&self, names: &[String]) -> Vec<WorkspaceNameBuf> {
-        if names.is_empty() {
-            vec![self.current.workspace.workspace_name().to_owned()]
-        } else {
-            names
-                .iter()
-                .map(|name| WorkspaceNameBuf::from(name.as_str()))
-                .collect()
-        }
-    }
 }
 
 fn resolve_workspace_root(cwd: &Path, configured: Option<&Path>) -> Result<PathBuf> {
