@@ -1,5 +1,6 @@
 use std::{
     env::set_current_dir,
+    fmt,
     fs::{create_dir_all, read, read_dir, remove_dir_all},
     path::{Path, PathBuf},
     sync::Arc,
@@ -54,6 +55,43 @@ impl ForgetDeletion {
         } else {
             Self::Removed
         }
+    }
+}
+
+impl fmt::Display for ForgetResult {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let (name, path) = (self.name.as_symbol(), self.path.display());
+        match self.deletion {
+            ForgetDeletion::Removed => write!(f, "Forgot workspace {name} and removed {path}"),
+            ForgetDeletion::NotFoundAtInferredPath => write!(
+                f,
+                "Forgot workspace {name} but the inferred directory was not found at {path}"
+            ),
+            ForgetDeletion::KeptRepoHost => write!(
+                f,
+                "Forgot workspace {name} but kept {path} because it hosts the repo"
+            ),
+        }
+    }
+}
+
+impl fmt::Display for WorkspaceListEntry {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let marker = if self.is_current { "*" } else { " " };
+        let suffix = if self.is_repo_host {
+            " [repo-host]"
+        } else if !self.exists_on_disk {
+            " [out-of-control]"
+        } else {
+            ""
+        };
+        write!(
+            f,
+            "{marker} {}\t{}{}",
+            self.name.as_symbol(),
+            self.path.display(),
+            suffix
+        )
     }
 }
 

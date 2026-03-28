@@ -83,23 +83,13 @@ pub fn forget(options: ForgetOptions) -> Result<()> {
         return Ok(());
     }
 
-    let mut kept_repo_host = false;
     for r in &results {
-        let (name, path) = (r.name.as_symbol(), r.path.display());
-        match r.deletion {
-            ForgetDeletion::Removed => println!("Forgot workspace {name} and removed {path}"),
-            ForgetDeletion::NotFoundAtInferredPath => {
-                println!(
-                    "Forgot workspace {name} but the inferred directory was not found at {path}"
-                );
-            }
-            ForgetDeletion::KeptRepoHost => {
-                println!("Forgot workspace {name} but kept {path} because it hosts the repo");
-                kept_repo_host = true;
-            }
-        }
+        println!("{r}");
     }
-    if kept_repo_host {
+    if results
+        .iter()
+        .any(|r| matches!(r.deletion, ForgetDeletion::KeptRepoHost))
+    {
         println!("The repo still lives under {}", ctx.repo_root.display());
     }
 
@@ -109,21 +99,8 @@ pub fn forget(options: ForgetOptions) -> Result<()> {
 pub fn list(options: ListOptions) -> Result<()> {
     let ctx = CommandContext::load(options.parent_dir.as_deref())?;
 
-    for workspace in list_workspaces(&ctx.current, &ctx.repo_root, &ctx.parent_dir) {
-        let marker = if workspace.is_current { "*" } else { " " };
-        let suffix = if workspace.is_repo_host {
-            " [repo-host]"
-        } else if !workspace.exists_on_disk {
-            " [out-of-control]"
-        } else {
-            ""
-        };
-        println!(
-            "{marker} {}\t{}{}",
-            workspace.name.as_symbol(),
-            workspace.path.display(),
-            suffix
-        );
+    for ws in list_workspaces(&ctx.current, &ctx.repo_root, &ctx.parent_dir) {
+        println!("{ws}");
     }
 
     Ok(())
