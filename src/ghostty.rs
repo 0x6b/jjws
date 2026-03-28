@@ -2,14 +2,18 @@ use std::{env::var, path::Path, process::Command};
 
 use anyhow::{Context, Result, bail};
 
-pub fn open_tab(workspace_path: &Path) -> Result<Option<String>> {
+pub fn open_tab(workspace_path: &Path, command: Option<&str>) -> Result<Option<String>> {
     if !is_available() {
         return Ok(None);
     }
 
     let workspace_path = workspace_path.to_str().context("workspace path is not valid UTF-8")?;
-    let command = format!("cd {}", shell_escape_single(workspace_path));
-    let script = build_tab_script(workspace_path, &command);
+    let cd = format!("cd {}", shell_escape_single(workspace_path));
+    let full_command = match command {
+        Some(cmd) => format!("{cd} && {cmd}"),
+        None => cd,
+    };
+    let script = build_tab_script(workspace_path, &full_command);
     let terminal_id = run_applescript_output(&script).context("failed to create Ghostty tab")?;
     Ok(Some(terminal_id))
 }

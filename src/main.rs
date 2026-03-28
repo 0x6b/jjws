@@ -23,6 +23,9 @@ enum Command {
         /// Name of the new workspace
         name: String,
 
+        /// Command to run in the new tab after cd-ing into the workspace
+        command: Option<String>,
+
         /// Skip opening a Ghostty tab
         #[arg(long)]
         no_tab: bool,
@@ -43,7 +46,7 @@ fn main() -> Result<()> {
     let ws_root = cli.workspace_root.as_deref();
 
     match cli.command {
-        Command::Add { name, no_tab } => add(AddOptions { name, no_tab }, ws_root),
+        Command::Add { name, command, no_tab } => add(AddOptions { name, command, no_tab }, ws_root),
         Command::Forget { workspaces } => forget(workspaces, ws_root),
         Command::List => list(ws_root),
     }

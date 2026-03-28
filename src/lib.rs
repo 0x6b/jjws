@@ -18,6 +18,7 @@ use jj_lib::ref_name::WorkspaceNameBuf;
 
 pub struct AddOptions {
     pub name: String,
+    pub command: Option<String>,
     pub no_tab: bool,
 }
 
@@ -36,7 +37,7 @@ pub fn add(options: AddOptions, workspace_root: Option<&Path>) -> Result<()> {
     )?;
 
     let tab_opened = !options.no_tab
-        && match open_tab(&destination) {
+        && match open_tab(&destination, options.command.as_deref()) {
             Ok(Some(_)) => true,
             Ok(None) => false,
             Err(err) => {
