@@ -27,13 +27,13 @@ enum Command {
         #[arg(long)]
         no_tab: bool,
     },
+    /// List workspaces associated with the repo
+    List,
     /// Forget workspaces, then remove their directories when safe
     Forget {
         /// Workspace names to forget. Defaults to the current workspace.
         workspaces: Vec<String>,
     },
-    /// List workspaces associated with the repo
-    List,
 }
 
 fn main() -> Result<()> {
