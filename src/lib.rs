@@ -17,20 +17,31 @@ use jj::{
 };
 use jj_lib::ref_name::WorkspaceNameBuf;
 
-pub struct AddOptions {
-    pub name: String,
+pub struct NewOptions {
+    pub name: Option<String>,
     pub command: Option<String>,
     pub no_tab: bool,
 }
 
-pub fn add(options: AddOptions, workspace_root: Option<&Path>) -> Result<()> {
+pub fn new_workspace(options: NewOptions, workspace_root: Option<&Path>) -> Result<()> {
     let ctx = CommandContext::load(workspace_root)?;
+    let name = match options.name {
+        Some(name) => name,
+        None => {
+            let repo_view = ctx.current.repo.view();
+            names::generate(|candidate| {
+                repo_view
+                    .get_wc_commit_id(&WorkspaceNameBuf::from(candidate))
+                    .is_some()
+            })
+        }
+    };
     let repo_dir_name = ctx
         .repo_root
         .file_name()
         .context("repo root has no directory name")?;
-    let destination = ctx.workspace_root.join(repo_dir_name).join(&options.name);
-    let workspace_name = WorkspaceNameBuf::from(options.name.as_str());
+    let destination = ctx.workspace_root.join(repo_dir_name).join(&name);
+    let workspace_name = WorkspaceNameBuf::from(name.as_str());
 
     create_workspace(&ctx.current, &destination, workspace_name)?;
 

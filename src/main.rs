@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use jjws::{AddOptions, add, cd, forget, list};
+use jjws::{NewOptions, cd, forget, list, new_workspace};
 
 #[derive(Parser, Debug)]
 #[command(about, version)]
@@ -18,10 +18,11 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Command {
-    /// Create a new workspace and open it in Ghostty
-    Add {
-        /// Name of the new workspace
-        name: String,
+    /// Create a new workspace and open it in Ghostty with auto-generated name
+    New {
+        /// Name of the new workspace (auto-generated if omitted)
+        #[arg(long)]
+        name: Option<String>,
 
         /// Command to run in the new tab after cd-ing into the workspace
         command: Option<String>,
@@ -51,7 +52,18 @@ fn main() -> Result<()> {
     let ws_root = cli.workspace_root.as_deref();
 
     match cli.command {
-        Command::Add { name, command, no_tab } => add(AddOptions { name, command, no_tab }, ws_root),
+        Command::New {
+            name,
+            command,
+            no_tab,
+        } => new_workspace(
+            NewOptions {
+                name,
+                command,
+                no_tab,
+            },
+            ws_root,
+        ),
         Command::Forget { workspaces } => forget(workspaces, ws_root),
         Command::List => list(ws_root),
         Command::Cd { name } => cd(name.as_deref(), ws_root),

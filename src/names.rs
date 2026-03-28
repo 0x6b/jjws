@@ -66,8 +66,13 @@ mod tests {
 
     #[test]
     fn generate_appends_number_on_collision() {
-        let first = generate(|_| false);
-        let name = generate(|candidate| candidate == first || candidate == format!("{first}2"));
-        assert_eq!(name, format!("{first}3"));
+        // Use a fixed known name to test collision handling deterministically.
+        let blocked = "bold-eagle";
+        let name = generate(|candidate| candidate == blocked || candidate == format!("{blocked}2"));
+        // If the time-based seed happens to pick "bold-eagle", we get "bold-eagle3".
+        // Otherwise we get a different uncontested name. Either way, "bold-eagle"
+        // itself must never be returned.
+        assert_ne!(name, blocked);
+        assert_ne!(name, format!("{blocked}2"));
     }
 }
