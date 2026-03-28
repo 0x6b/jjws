@@ -104,7 +104,7 @@ impl CommandContext {
         let cwd = current_dir().context("failed to determine current directory")?;
         let current = load_workspace(&cwd)?;
         let repo_root = repo_root_from_repo_path(current.workspace.repo_path())?;
-        let workspace_root = resolve_workspace_root(&cwd, &repo_root, workspace_root)?;
+        let workspace_root = resolve_workspace_root(&cwd, workspace_root)?;
         Ok(Self { cwd, current, repo_root, workspace_root })
     }
 
@@ -120,18 +120,14 @@ impl CommandContext {
     }
 }
 
-fn resolve_workspace_root(
-    cwd: &Path,
-    repo_root: &Path,
-    configured: Option<&Path>,
-) -> Result<PathBuf> {
+fn resolve_workspace_root(cwd: &Path, configured: Option<&Path>) -> Result<PathBuf> {
     if let Some(root) = configured {
         return Ok(if root.is_absolute() { root.to_path_buf() } else { cwd.join(root) });
     }
 
-    let repo_dir_name = repo_root.file_name().context("repo root has no basename")?;
-    let repo_parent = repo_root.parent().context("repo root has no parent")?;
-    Ok(repo_parent.join("workspaces").join(repo_dir_name))
+    dirs::data_dir()
+        .map(|d| d.join("jjws"))
+        .context("failed to determine data directory")
 }
 
 #[cfg(test)]
@@ -141,18 +137,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_workspace_root_uses_repo_root_name() {
-        let cwd = Path::new("/tmp/workspaces/example-repo/feature");
-        let repo_root = Path::new("/tmp/example-repo");
-        let root = resolve_workspace_root(cwd, repo_root, None).unwrap();
-        assert_eq!(root, PathBuf::from("/tmp/workspaces/example-repo"));
+    fn default_workspace_root_uses_data_dir() {
+        let cwd = Path::new("/tmp/example-repo");
+        let root = resolve_workspace_root(cwd, None).unwrap();
+        assert_eq!(root, dirs::data_dir().unwrap().join("jjws"));
     }
 
     #[test]
     fn relative_workspace_root_is_resolved_from_cwd() {
         let cwd = Path::new("/tmp/example-repo");
-        let repo_root = Path::new("/tmp/example-repo");
-        let root = resolve_workspace_root(cwd, repo_root, Some(Path::new("../custom"))).unwrap();
+        let root = resolve_workspace_root(cwd, Some(Path::new("../custom"))).unwrap();
         assert_eq!(root, PathBuf::from("/tmp/example-repo/../custom"));
+    }
+
+    #[test]
+    fn absolute_workspace_root_is_used_as_is() {
+        let cwd = Path::new("/tmp/example-repo");
+        let root = resolve_workspace_root(cwd, Some(Path::new("/my/workspaces"))).unwrap();
+        assert_eq!(root, PathBuf::from("/my/workspaces"));
     }
 }
