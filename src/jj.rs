@@ -1,6 +1,7 @@
 use std::{
     env::set_current_dir,
     fmt,
+    fmt::{Display, Formatter},
     fs::{create_dir_all, read, read_dir, remove_dir_all},
     path::{Path, PathBuf},
     sync::Arc,
@@ -50,16 +51,12 @@ pub(crate) enum ForgetDeletion {
 
 impl ForgetDeletion {
     fn plan(path: &Path) -> Self {
-        if path.join(".jj").join("repo").is_dir() {
-            Self::KeptRepoHost
-        } else {
-            Self::Removed
-        }
+        if path.join(".jj").join("repo").is_dir() { Self::KeptRepoHost } else { Self::Removed }
     }
 }
 
-impl fmt::Display for ForgetResult {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl Display for ForgetResult {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let (name, path) = (self.name.as_symbol(), self.path.display());
         match self.deletion {
             ForgetDeletion::Removed => write!(f, "Forgot workspace {name} and removed {path}"),
@@ -67,16 +64,15 @@ impl fmt::Display for ForgetResult {
                 f,
                 "Forgot workspace {name} but the inferred directory was not found at {path}"
             ),
-            ForgetDeletion::KeptRepoHost => write!(
-                f,
-                "Forgot workspace {name} but kept {path} because it hosts the repo"
-            ),
+            ForgetDeletion::KeptRepoHost => {
+                write!(f, "Forgot workspace {name} but kept {path} because it hosts the repo")
+            }
         }
     }
 }
 
-impl fmt::Display for WorkspaceListEntry {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl Display for WorkspaceListEntry {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let marker = if self.is_current { "*" } else { " " };
         let suffix = if self.is_repo_host {
             " [repo-host]"
@@ -85,13 +81,7 @@ impl fmt::Display for WorkspaceListEntry {
         } else {
             ""
         };
-        write!(
-            f,
-            "{marker} {}\t{}{}",
-            self.name.as_symbol(),
-            self.path.display(),
-            suffix
-        )
+        write!(f, "{marker} {}\t{}{suffix}", self.name.as_symbol(), self.path.display())
     }
 }
 
@@ -114,16 +104,8 @@ pub(crate) fn create_workspace(
     destination: &Path,
     workspace_name: WorkspaceNameBuf,
 ) -> Result<()> {
-    if current
-        .repo
-        .view()
-        .get_wc_commit_id(&workspace_name)
-        .is_some()
-    {
-        bail!(
-            "workspace named '{}' already exists",
-            workspace_name.as_symbol()
-        );
+    if current.repo.view().get_wc_commit_id(&workspace_name).is_some() {
+        bail!("workspace named '{}' already exists", workspace_name.as_symbol());
     }
 
     prepare_destination(destination)?;
@@ -192,11 +174,7 @@ pub(crate) fn forget_workspaces(
         [name] => format!("forget workspace {}", name.as_symbol()),
         names => format!(
             "forget workspaces {}",
-            names
-                .iter()
-                .map(|n| n.as_str())
-                .collect::<Vec<_>>()
-                .join(", ")
+            names.iter().map(|n| n.as_str()).collect::<Vec<_>>().join(", ")
         ),
     };
     tx.commit(description)?;
@@ -204,9 +182,7 @@ pub(crate) fn forget_workspaces(
     // Move cwd out before deleting
     for (_, path, deletion) in &planned {
         if *deletion == ForgetDeletion::Removed && cwd.starts_with(path) {
-            let parent = path
-                .parent()
-                .context("workspace to delete has no parent directory")?;
+            let parent = path.parent().context("workspace to delete has no parent directory")?;
             set_current_dir(parent)
                 .with_context(|| format!("failed to switch to {}", parent.display()))?;
             break;
@@ -225,11 +201,7 @@ pub(crate) fn forget_workspaces(
                 ForgetDeletion::Removed => ForgetDeletion::NotFoundAtInferredPath,
                 other => other,
             };
-            Ok(ForgetResult {
-                name,
-                path,
-                deletion,
-            })
+            Ok(ForgetResult { name, path, deletion })
         })
         .collect()
 }
@@ -489,11 +461,7 @@ mod tests {
 
         let loaded = LoadedWorkspace { workspace, repo };
         let destination = temp_dir.path().join("secondary");
-        create_workspace(
-            &loaded,
-            &destination,
-            ref_name::WorkspaceNameBuf::from("secondary"),
-        )?;
+        create_workspace(&loaded, &destination, ref_name::WorkspaceNameBuf::from("secondary"))?;
 
         let secondary = load_workspace(&destination)?;
         let wc_commit_id = secondary
@@ -518,11 +486,7 @@ mod tests {
         let settings = test_settings();
         let (workspace, repo) = Workspace::init_simple(&settings, &source_root)?;
         let loaded = LoadedWorkspace { workspace, repo };
-        create_workspace(
-            &loaded,
-            &secondary_root,
-            WorkspaceNameBuf::from("secondary"),
-        )?;
+        create_workspace(&loaded, &secondary_root, WorkspaceNameBuf::from("secondary"))?;
 
         let secondary = load_workspace(&secondary_root)?;
         let results = forget_workspaces(

@@ -72,10 +72,7 @@ fn collect_tracked_paths(
         tracked_paths.insert(path);
     }
 
-    Ok(TrackedPaths {
-        tracked_paths,
-        tracked_dirs,
-    })
+    Ok(TrackedPaths { tracked_paths, tracked_dirs })
 }
 
 fn add_parent_directories(path: &str, tracked_dirs: &mut HashSet<String>) {
@@ -168,11 +165,7 @@ fn walk_ignored_paths(
             format!("{relative_dir}/{file_name}")
         };
 
-        let ignore_key = if is_dir {
-            format!("{relative_path}/")
-        } else {
-            relative_path.clone()
-        };
+        let ignore_key = if is_dir { format!("{relative_path}/") } else { relative_path.clone() };
         let is_ignored = current_ignores.matches(&ignore_key);
 
         if is_dir {
@@ -201,11 +194,7 @@ fn load_directory_gitignore(
     relative_dir: &str,
     inherited_ignores: Arc<GitIgnoreFile>,
 ) -> Result<Arc<GitIgnoreFile>> {
-    let prefix = if relative_dir.is_empty() {
-        String::new()
-    } else {
-        format!("{relative_dir}/")
-    };
+    let prefix = if relative_dir.is_empty() { String::new() } else { format!("{relative_dir}/") };
     inherited_ignores
         .chain_with_file(&prefix, current_dir.join(".gitignore"))
         .map_err(Into::into)
@@ -250,7 +239,10 @@ impl TrackedPaths {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections, fs::create_dir_all, fs::write};
+    use std::{
+        collections,
+        fs::{create_dir_all, write},
+    };
 
     use jj_lib::gitignore;
     use tempfile::TempDir;
@@ -263,10 +255,7 @@ mod tests {
         let root = temp_dir.path();
         write(root.join(".gitignore"), "node_modules/\n")?;
         create_dir_all(root.join("node_modules").join("pkg"))?;
-        write(
-            root.join("node_modules").join("pkg").join("file"),
-            "contents",
-        )?;
+        write(root.join("node_modules").join("pkg").join("file"), "contents")?;
 
         let ignored_paths = collect_ignored_paths(
             root,

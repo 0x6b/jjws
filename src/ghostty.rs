@@ -7,9 +7,7 @@ pub fn open_tab(workspace_path: &Path) -> Result<Option<String>> {
         return Ok(None);
     }
 
-    let workspace_path = workspace_path
-        .to_str()
-        .context("workspace path is not valid UTF-8")?;
+    let workspace_path = workspace_path.to_str().context("workspace path is not valid UTF-8")?;
     let command = format!("cd {}", shell_escape_single(workspace_path));
     let script = build_tab_script(workspace_path, &command);
     let terminal_id = run_applescript_output(&script).context("failed to create Ghostty tab")?;

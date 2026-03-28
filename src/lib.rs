@@ -11,8 +11,8 @@ use anyhow::{Context, Result};
 use ghostty::open_tab;
 use ignored::symlink_ignored_paths;
 use jj::{
-    ForgetDeletion, create_workspace, forget_workspaces, list_workspaces, load_workspace,
-    repo_root_from_repo_path,
+    ForgetDeletion, LoadedWorkspace, create_workspace, forget_workspaces, list_workspaces,
+    load_workspace, repo_root_from_repo_path,
 };
 use jj_lib::ref_name::WorkspaceNameBuf;
 
@@ -70,13 +70,8 @@ pub fn add(options: AddOptions) -> Result<()> {
 pub fn forget(options: ForgetOptions) -> Result<()> {
     let ctx = CommandContext::load(options.parent_dir.as_deref())?;
     let target_names = ctx.workspace_names_or_current(&options.workspaces);
-    let results = forget_workspaces(
-        &ctx.current,
-        &target_names,
-        &ctx.cwd,
-        &ctx.repo_root,
-        &ctx.parent_dir,
-    )?;
+    let results =
+        forget_workspaces(&ctx.current, &target_names, &ctx.cwd, &ctx.repo_root, &ctx.parent_dir)?;
 
     if results.is_empty() {
         println!("Nothing changed.");
@@ -86,10 +81,7 @@ pub fn forget(options: ForgetOptions) -> Result<()> {
     for r in &results {
         println!("{r}");
     }
-    if results
-        .iter()
-        .any(|r| r.deletion == ForgetDeletion::KeptRepoHost)
-    {
+    if results.iter().any(|r| r.deletion == ForgetDeletion::KeptRepoHost) {
         println!("The repo still lives under {}", ctx.repo_root.display());
     }
 
@@ -108,7 +100,7 @@ pub fn list(options: ListOptions) -> Result<()> {
 
 struct CommandContext {
     cwd: PathBuf,
-    current: jj::LoadedWorkspace,
+    current: LoadedWorkspace,
     repo_root: PathBuf,
     parent_dir: PathBuf,
 }
@@ -119,12 +111,7 @@ impl CommandContext {
         let current = load_workspace(&cwd)?;
         let repo_root = repo_root_from_repo_path(current.workspace.repo_path())?;
         let parent_dir = resolve_parent_dir(&cwd, &repo_root, configured_parent)?;
-        Ok(Self {
-            cwd,
-            current,
-            repo_root,
-            parent_dir,
-        })
+        Ok(Self { cwd, current, repo_root, parent_dir })
     }
 
     fn workspace_names_or_current(&self, names: &[String]) -> Vec<WorkspaceNameBuf> {
@@ -145,11 +132,7 @@ fn resolve_parent_dir(
     configured_parent: Option<&Path>,
 ) -> Result<PathBuf> {
     if let Some(parent) = configured_parent {
-        return Ok(if parent.is_absolute() {
-            parent.to_path_buf()
-        } else {
-            cwd.join(parent)
-        });
+        return Ok(if parent.is_absolute() { parent.to_path_buf() } else { cwd.join(parent) });
     }
 
     let repo_dir_name = repo_root.file_name().context("repo root has no basename")?;
