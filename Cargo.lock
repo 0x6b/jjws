@@ -1558,6 +1558,7 @@ dependencies = [
  "dirs",
  "dunce",
  "gethostname",
+ "jiff",
  "jj-lib",
  "pollster",
  "tempfile",

@@ -34,6 +34,8 @@ pub(crate) struct WorkspaceListEntry {
     pub(crate) exists_on_disk: bool,
     pub(crate) is_current: bool,
     pub(crate) is_repo_host: bool,
+    pub(crate) created: Option<jiff::Zoned>,
+    pub(crate) modified: Option<jiff::Zoned>,
 }
 
 pub(crate) struct ForgetResult {
@@ -81,7 +83,17 @@ impl Display for WorkspaceListEntry {
         } else {
             ""
         };
-        write!(f, "{marker} {}\t{}{suffix}", self.name.as_symbol(), self.path.display())
+        let fmt_time = |t: &jiff::Zoned| t.strftime("%Y-%m-%d %H:%M:%S").to_string();
+        let created = self.created.as_ref().map(fmt_time).unwrap_or_default();
+        let modified = self.modified.as_ref().map(fmt_time).unwrap_or_default();
+        write!(
+            f,
+            "{marker} {}\t{}\t{}\t{}{suffix}",
+            self.name.as_symbol(),
+            created,
+            modified,
+            self.path.display()
+        )
     }
 }
 
@@ -213,22 +225,35 @@ pub(crate) fn list_workspaces(
 ) -> Vec<WorkspaceListEntry> {
     let locator = WorkspaceLocator::new(current, repo_root, workspace_root);
 
-    current
+    let mut entries: Vec<_> = current
         .repo
         .view()
         .wc_commit_ids()
         .keys()
         .map(|name| {
             let path = locator.path(name);
+            let meta = path.metadata().ok();
+            let created = meta
+                .as_ref()
+                .and_then(|m| m.created().ok())
+                .and_then(|t| jiff::Zoned::try_from(t).ok());
+            let modified = meta
+                .as_ref()
+                .and_then(|m| m.modified().ok())
+                .and_then(|t| jiff::Zoned::try_from(t).ok());
             WorkspaceListEntry {
                 name: name.clone(),
                 exists_on_disk: path.exists(),
                 is_current: name == current.workspace.workspace_name(),
                 is_repo_host: locator.is_repo_host(name),
+                created,
+                modified,
                 path,
             }
         })
-        .collect()
+        .collect();
+    entries.sort_by(|a, b| a.created.cmp(&b.created));
+    entries
 }
 
 pub(crate) fn locate_workspace(
