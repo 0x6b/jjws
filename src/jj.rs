@@ -17,9 +17,7 @@ use jj_lib::{
     repo::{ReadonlyRepo, Repo as _, StoreFactories},
     rewrite::merge_commit_trees,
     settings::UserSettings,
-    workspace::{
-        Workspace, default_working_copy_factories, default_working_copy_factory,
-    },
+    workspace::{Workspace, default_working_copy_factories, default_working_copy_factory},
 };
 use pollster::FutureExt as _;
 
@@ -133,17 +131,11 @@ pub(crate) fn forget_workspaces(
         return Ok(vec![]);
     }
 
-    let repo_host_name = repo_host_workspace_name(current, repo_root);
+    let locator = WorkspaceLocator::new(current, repo_root, parent_dir);
     let planned: Vec<_> = known_targets
         .iter()
         .map(|name| {
-            let path = infer_workspace_path(
-                current,
-                name,
-                repo_root,
-                parent_dir,
-                repo_host_name.as_ref(),
-            );
+            let path = locator.path(name);
             let deletion = ForgetDeletion::plan(&path);
             (name.clone(), path, deletion)
         })
@@ -159,7 +151,11 @@ pub(crate) fn forget_workspaces(
         [name] => format!("forget workspace {}", name.as_symbol()),
         names => format!(
             "forget workspaces {}",
-            names.iter().map(|n| n.as_str()).collect::<Vec<_>>().join(", ")
+            names
+                .iter()
+                .map(|n| n.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
         ),
     };
     tx.commit(description)?;
@@ -167,7 +163,9 @@ pub(crate) fn forget_workspaces(
     // Move cwd out before deleting
     for (_, path, deletion) in &planned {
         if matches!(deletion, ForgetDeletion::Removed) && cwd.starts_with(path) {
-            let parent = path.parent().context("workspace to delete has no parent directory")?;
+            let parent = path
+                .parent()
+                .context("workspace to delete has no parent directory")?;
             set_current_dir(parent)
                 .with_context(|| format!("failed to switch to {}", parent.display()))?;
             break;
@@ -186,7 +184,11 @@ pub(crate) fn forget_workspaces(
                 ForgetDeletion::Removed => ForgetDeletion::NotFoundAtInferredPath,
                 other => other,
             };
-            Ok(ForgetResult { name, path, deletion })
+            Ok(ForgetResult {
+                name,
+                path,
+                deletion,
+            })
         })
         .collect()
 }
@@ -195,33 +197,25 @@ pub(crate) fn list_workspaces(
     current: &LoadedWorkspace,
     repo_root: &Path,
     parent_dir: &Path,
-) -> Result<Vec<WorkspaceListEntry>> {
-    let repo_host_name = repo_host_workspace_name(current, repo_root);
+) -> Vec<WorkspaceListEntry> {
+    let locator = WorkspaceLocator::new(current, repo_root, parent_dir);
 
-    Ok(current
+    current
         .repo
         .view()
         .wc_commit_ids()
         .keys()
         .map(|name| {
-            let path = infer_workspace_path(
-                current,
-                name,
-                repo_root,
-                parent_dir,
-                repo_host_name.as_ref(),
-            );
+            let path = locator.path(name);
             WorkspaceListEntry {
                 name: name.clone(),
                 exists_on_disk: path.exists(),
                 is_current: name == current.workspace.workspace_name(),
-                is_repo_host: repo_host_name
-                    .as_ref()
-                    .is_some_and(|repo_host_name| name == repo_host_name),
+                is_repo_host: locator.is_repo_host(name),
                 path,
             }
         })
-        .collect())
+        .collect()
 }
 
 pub(crate) fn repo_root_from_repo_path(repo_path: &Path) -> Result<PathBuf> {
@@ -245,20 +239,38 @@ fn repo_host_workspace_name(
         .map(|workspace| workspace.workspace.workspace_name().to_owned())
 }
 
-fn infer_workspace_path(
-    current: &LoadedWorkspace,
-    workspace_name: &WorkspaceName,
-    repo_root: &Path,
-    parent_dir: &Path,
-    repo_host_name: Option<&WorkspaceNameBuf>,
-) -> PathBuf {
-    if workspace_name == current.workspace.workspace_name() {
-        return current.workspace.workspace_root().to_path_buf();
+struct WorkspaceLocator<'a> {
+    current: &'a LoadedWorkspace,
+    repo_root: &'a Path,
+    parent_dir: &'a Path,
+    repo_host_name: Option<WorkspaceNameBuf>,
+}
+
+impl<'a> WorkspaceLocator<'a> {
+    fn new(current: &'a LoadedWorkspace, repo_root: &'a Path, parent_dir: &'a Path) -> Self {
+        Self {
+            current,
+            repo_root,
+            parent_dir,
+            repo_host_name: repo_host_workspace_name(current, repo_root),
+        }
     }
-    if repo_host_name.is_some_and(|repo_host_name| workspace_name == repo_host_name) {
-        return repo_root.to_path_buf();
+
+    fn path(&self, workspace_name: &WorkspaceName) -> PathBuf {
+        if workspace_name == self.current.workspace.workspace_name() {
+            return self.current.workspace.workspace_root().to_path_buf();
+        }
+        if self.is_repo_host(workspace_name) {
+            return self.repo_root.to_path_buf();
+        }
+        self.parent_dir.join(workspace_name.as_str())
     }
-    parent_dir.join(workspace_name.as_str())
+
+    fn is_repo_host(&self, workspace_name: &WorkspaceName) -> bool {
+        self.repo_host_name
+            .as_ref()
+            .is_some_and(|repo_host_name| workspace_name == repo_host_name)
+    }
 }
 
 fn prepare_destination(destination: &Path) -> Result<()> {

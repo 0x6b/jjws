@@ -32,20 +32,17 @@ pub struct ListOptions {
 }
 
 pub fn add(options: AddOptions) -> Result<()> {
-    let cwd = current_dir().context("failed to determine current directory")?;
-    let current = load_workspace(&cwd)?;
-    let repo_root = repo_root_from_repo_path(current.workspace.repo_path())?;
-    let parent_dir = resolve_parent_dir(&cwd, &repo_root, options.parent_dir.as_deref())?;
-    let destination = parent_dir.join(&options.name);
+    let ctx = CommandContext::load(options.parent_dir.as_deref())?;
+    let destination = ctx.parent_dir.join(&options.name);
     let workspace_name = WorkspaceNameBuf::from(options.name.as_str());
 
-    create_workspace(&current, &destination, workspace_name)?;
+    create_workspace(&ctx.current, &destination, workspace_name)?;
 
     let symlinked = symlink_ignored_paths(
-        current.workspace.workspace_root(),
+        ctx.current.workspace.workspace_root(),
         &destination,
-        &current.repo,
-        current.workspace.workspace_name(),
+        &ctx.current.repo,
+        ctx.current.workspace.workspace_name(),
     )?;
 
     let tab_opened = !options.no_tab
@@ -71,22 +68,15 @@ pub fn add(options: AddOptions) -> Result<()> {
 }
 
 pub fn forget(options: ForgetOptions) -> Result<()> {
-    let cwd = current_dir().context("failed to determine current directory")?;
-    let current = load_workspace(&cwd)?;
-    let repo_root = repo_root_from_repo_path(current.workspace.repo_path())?;
-    let parent_dir = resolve_parent_dir(&cwd, &repo_root, options.parent_dir.as_deref())?;
-
-    let target_names = if options.workspaces.is_empty() {
-        vec![current.workspace.workspace_name().to_owned()]
-    } else {
-        options
-            .workspaces
-            .iter()
-            .map(|name| WorkspaceNameBuf::from(name.as_str()))
-            .collect()
-    };
-
-    let results = forget_workspaces(&current, &target_names, &cwd, &repo_root, &parent_dir)?;
+    let ctx = CommandContext::load(options.parent_dir.as_deref())?;
+    let target_names = ctx.workspace_names_or_current(&options.workspaces);
+    let results = forget_workspaces(
+        &ctx.current,
+        &target_names,
+        &ctx.cwd,
+        &ctx.repo_root,
+        &ctx.parent_dir,
+    )?;
 
     if results.is_empty() {
         println!("Nothing changed.");
@@ -99,7 +89,9 @@ pub fn forget(options: ForgetOptions) -> Result<()> {
         match r.deletion {
             ForgetDeletion::Removed => println!("Forgot workspace {name} and removed {path}"),
             ForgetDeletion::NotFoundAtInferredPath => {
-                println!("Forgot workspace {name} but the inferred directory was not found at {path}");
+                println!(
+                    "Forgot workspace {name} but the inferred directory was not found at {path}"
+                );
             }
             ForgetDeletion::KeptRepoHost => {
                 println!("Forgot workspace {name} but kept {path} because it hosts the repo");
@@ -108,19 +100,16 @@ pub fn forget(options: ForgetOptions) -> Result<()> {
         }
     }
     if kept_repo_host {
-        println!("The repo still lives under {}", repo_root.display());
+        println!("The repo still lives under {}", ctx.repo_root.display());
     }
 
     Ok(())
 }
 
 pub fn list(options: ListOptions) -> Result<()> {
-    let cwd = current_dir().context("failed to determine current directory")?;
-    let current = load_workspace(&cwd)?;
-    let repo_root = repo_root_from_repo_path(current.workspace.repo_path())?;
-    let parent_dir = resolve_parent_dir(&cwd, &repo_root, options.parent_dir.as_deref())?;
+    let ctx = CommandContext::load(options.parent_dir.as_deref())?;
 
-    for workspace in list_workspaces(&current, &repo_root, &parent_dir)? {
+    for workspace in list_workspaces(&ctx.current, &ctx.repo_root, &ctx.parent_dir) {
         let marker = if workspace.is_current { "*" } else { " " };
         let suffix = if workspace.is_repo_host {
             " [repo-host]"
@@ -138,6 +127,39 @@ pub fn list(options: ListOptions) -> Result<()> {
     }
 
     Ok(())
+}
+
+struct CommandContext {
+    cwd: PathBuf,
+    current: jj::LoadedWorkspace,
+    repo_root: PathBuf,
+    parent_dir: PathBuf,
+}
+
+impl CommandContext {
+    fn load(configured_parent: Option<&Path>) -> Result<Self> {
+        let cwd = current_dir().context("failed to determine current directory")?;
+        let current = load_workspace(&cwd)?;
+        let repo_root = repo_root_from_repo_path(current.workspace.repo_path())?;
+        let parent_dir = resolve_parent_dir(&cwd, &repo_root, configured_parent)?;
+        Ok(Self {
+            cwd,
+            current,
+            repo_root,
+            parent_dir,
+        })
+    }
+
+    fn workspace_names_or_current(&self, names: &[String]) -> Vec<WorkspaceNameBuf> {
+        if names.is_empty() {
+            vec![self.current.workspace.workspace_name().to_owned()]
+        } else {
+            names
+                .iter()
+                .map(|name| WorkspaceNameBuf::from(name.as_str()))
+                .collect()
+        }
+    }
 }
 
 fn resolve_parent_dir(

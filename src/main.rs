@@ -36,20 +36,21 @@ enum Command {
 }
 
 fn main() -> Result<()> {
-    let cli = Cli::parse();
+    let Cli {
+        parent_dir,
+        command,
+    } = Cli::parse();
 
-    match cli.command {
+    match command {
         Command::Add { name, no_tab } => add(AddOptions {
             name,
-            parent_dir: cli.parent_dir,
+            parent_dir,
             no_tab,
         }),
         Command::Forget { workspaces } => forget(ForgetOptions {
             workspaces,
-            parent_dir: cli.parent_dir,
+            parent_dir,
         }),
-        Command::List => list(ListOptions {
-            parent_dir: cli.parent_dir,
-        }),
+        Command::List => list(ListOptions { parent_dir }),
     }
 }
