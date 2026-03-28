@@ -1,0 +1,16 @@
+[package]
+name = "jj-ws"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.100"
+clap = { version = "4.5.53", features = ["derive"] }
+dirs = "6.0.0"
+dunce = "1.0.5"
+gethostname = "1.1.0"
+jj-lib = { git = "https://github.com/jj-vcs/jj.git", tag = "v0.37.0" }
+pollster = "0.4.0"
+
+[dev-dependencies]
+tempfile = "3.20.0"
