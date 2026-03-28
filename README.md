@@ -36,6 +36,12 @@ Options:
 $ cargo install --git https://github.com/0x6b/jjws
 ```
 
+## Fish Completions
+
+```console
+$ ln -s (realpath completions/jjws.fish) ~/.config/fish/completions/jjws.fish
+```
+
 ## License
 
 MIT. See [LICENSE](LICENSE) for details.
