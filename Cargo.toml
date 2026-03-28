@@ -1,5 +1,5 @@
 [package]
-name = "jj-ws"
+name = "jjws"
 version = "0.1.0"
 edition = "2024"
 
@@ -8,13 +8,13 @@ name = "jjws"
 path = "src/main.rs"
 
 [dependencies]
-anyhow = "1.0.100"
-clap = { version = "4.5.53", features = ["derive"] }
-dirs = "6.0.0"
-dunce = "1.0.5"
-gethostname = "1.1.0"
+anyhow = "1.0"
+clap = { version = "4.6", features = ["derive"] }
+dirs = "6.0"
+dunce = "1.0"
+gethostname = "1.1"
 jj-lib = { git = "https://github.com/jj-vcs/jj.git", tag = "v0.37.0" }
-pollster = "0.4.0"
+pollster = "0.4"
 
 [dev-dependencies]
-tempfile = "3.20.0"
+tempfile = "3.27"

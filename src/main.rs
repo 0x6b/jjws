@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use jj_ws::{AddOptions, ForgetOptions, add, forget, list};
+use jjws::{AddOptions, ForgetOptions, add, forget, list};
 
 #[derive(Parser, Debug)]
 #[command(about = "Manage jj workspaces with a few local conveniences", version)]
