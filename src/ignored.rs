@@ -33,22 +33,19 @@ pub fn symlink_ignored_paths(
     let base_ignores = load_base_ignores(repo)?;
     let ignored_paths = collect_ignored_paths(source_root, &tracked_paths, &base_ignores)?;
 
-    let mut created = 0;
-    for relative_path in ignored_paths {
-        let source_path = source_root.join(&relative_path);
-        let destination_path = destination_root.join(&relative_path);
-        if destination_path.symlink_metadata().is_ok() {
-            continue;
-        }
-        if let Some(parent) = destination_path.parent() {
-            create_dir_all(parent)
-                .with_context(|| format!("failed to create {}", parent.display()))?;
-        }
-        create_symlink(&source_path, &destination_path)?;
-        created += 1;
-    }
-
-    Ok(created)
+    ignored_paths
+        .iter()
+        .filter(|rel| destination_root.join(rel).symlink_metadata().is_err())
+        .try_fold(0usize, |created, rel| {
+            let source_path = source_root.join(rel);
+            let destination_path = destination_root.join(rel);
+            if let Some(parent) = destination_path.parent() {
+                create_dir_all(parent)
+                    .with_context(|| format!("failed to create {}", parent.display()))?;
+            }
+            create_symlink(&source_path, &destination_path)?;
+            Ok(created + 1)
+        })
 }
 
 fn collect_tracked_paths(
@@ -60,28 +57,23 @@ fn collect_tracked_paths(
     };
 
     let commit = repo.store().get_commit(wc_commit_id)?;
-    let mut tracked_paths = HashSet::new();
-    let mut tracked_dirs = HashSet::new();
-    for (path, value) in commit.tree().entries() {
-        let value = value?;
-        if !value.is_present() || value.is_tree() {
-            continue;
-        }
-        let path = path.as_internal_file_string().to_string();
-        add_parent_directories(&path, &mut tracked_dirs);
-        tracked_paths.insert(path);
-    }
-
-    Ok(TrackedPaths { tracked_paths, tracked_dirs })
+    commit.tree().entries().try_fold(
+        TrackedPaths::default(),
+        |mut acc, (path, value)| {
+            let value = value?;
+            if value.is_present() && !value.is_tree() {
+                let path = path.as_internal_file_string().to_string();
+                add_parent_directories(&path, &mut acc.tracked_dirs);
+                acc.tracked_paths.insert(path);
+            }
+            Ok(acc)
+        },
+    )
 }
 
 fn add_parent_directories(path: &str, tracked_dirs: &mut HashSet<String>) {
-    let mut end = 0;
-    while let Some(next) = path[end..].find('/') {
-        end += next;
-        tracked_dirs.insert(path[..end].to_string());
-        end += 1;
-    }
+    path.match_indices('/')
+        .for_each(|(i, _)| { tracked_dirs.insert(path[..i].to_string()); });
 }
 
 fn load_base_ignores(repo: &Arc<ReadonlyRepo>) -> Result<Arc<GitIgnoreFile>> {

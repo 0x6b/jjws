@@ -180,13 +180,13 @@ pub(crate) fn forget_workspaces(
     tx.commit(description)?;
 
     // Move cwd out before deleting
-    for (_, path, deletion) in &planned {
-        if *deletion == ForgetDeletion::Removed && cwd.starts_with(path) {
-            let parent = path.parent().context("workspace to delete has no parent directory")?;
-            set_current_dir(parent)
-                .with_context(|| format!("failed to switch to {}", parent.display()))?;
-            break;
-        }
+    if let Some((_, path, _)) = planned
+        .iter()
+        .find(|(_, path, deletion)| *deletion == ForgetDeletion::Removed && cwd.starts_with(path))
+    {
+        let parent = path.parent().context("workspace to delete has no parent directory")?;
+        set_current_dir(parent)
+            .with_context(|| format!("failed to switch to {}", parent.display()))?;
     }
 
     planned
@@ -399,11 +399,14 @@ fn load_user_config(config: &mut StackedConfig) -> Result<()> {
         config_dir().map(|d| d.join("jj/config.toml")),
     ];
 
-    for path in candidates.into_iter().flatten().filter(|p| p.exists()) {
-        config.add_layer(ConfigLayer::load_from_file(ConfigSource::User, path)?);
-    }
-
-    Ok(())
+    candidates
+        .into_iter()
+        .flatten()
+        .filter(|p| p.exists())
+        .try_for_each(|path| {
+            config.add_layer(ConfigLayer::load_from_file(ConfigSource::User, path)?);
+            Ok(())
+        })
 }
 
 fn resolve_repo_path(workspace_root: &Path) -> Result<PathBuf> {
