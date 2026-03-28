@@ -7,10 +7,10 @@ use jj_ws::{AddOptions, ForgetOptions, add, forget, list};
 #[derive(Parser, Debug)]
 #[command(about = "Manage jj workspaces with a few local conveniences", version)]
 struct Cli {
-    /// Parent directory where workspaces are created as <DIR>/<name>.
+    /// Root directory where workspaces are created as <DIR>/<name>.
     /// Defaults to ../workspaces/<repo-name> relative to the repo root
     #[arg(long, global = true, value_name = "DIR")]
-    parent_dir: Option<PathBuf>,
+    workspace_root: Option<PathBuf>,
 
     #[command(subcommand)]
     command: Command,
@@ -37,16 +37,12 @@ enum Command {
 }
 
 fn main() -> Result<()> {
-    let Cli {
-        parent_dir,
-        command,
-    } = Cli::parse();
+    let cli = Cli::parse();
+    let ws_root = cli.workspace_root.as_deref();
 
-    match command {
-        Command::Add { name, no_tab } => add(AddOptions { name, no_tab }, parent_dir.as_deref()),
-        Command::Forget { workspaces } => {
-            forget(ForgetOptions { workspaces }, parent_dir.as_deref())
-        }
-        Command::List => list(parent_dir.as_deref()),
+    match cli.command {
+        Command::Add { name, no_tab } => add(AddOptions { name, no_tab }, ws_root),
+        Command::Forget { workspaces } => forget(ForgetOptions { workspaces }, ws_root),
+        Command::List => list(ws_root),
     }
 }

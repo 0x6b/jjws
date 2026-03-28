@@ -25,9 +25,9 @@ pub struct ForgetOptions {
     pub workspaces: Vec<String>,
 }
 
-pub fn add(options: AddOptions, parent_dir: Option<&Path>) -> Result<()> {
-    let ctx = CommandContext::load(parent_dir)?;
-    let destination = ctx.parent_dir.join(&options.name);
+pub fn add(options: AddOptions, workspace_root: Option<&Path>) -> Result<()> {
+    let ctx = CommandContext::load(workspace_root)?;
+    let destination = ctx.workspace_root.join(&options.name);
     let workspace_name = WorkspaceNameBuf::from(options.name.as_str());
 
     create_workspace(&ctx.current, &destination, workspace_name)?;
@@ -61,11 +61,11 @@ pub fn add(options: AddOptions, parent_dir: Option<&Path>) -> Result<()> {
     Ok(())
 }
 
-pub fn forget(options: ForgetOptions, parent_dir: Option<&Path>) -> Result<()> {
-    let ctx = CommandContext::load(parent_dir)?;
+pub fn forget(options: ForgetOptions, workspace_root: Option<&Path>) -> Result<()> {
+    let ctx = CommandContext::load(workspace_root)?;
     let target_names = ctx.workspace_names_or_current(&options.workspaces);
     let results =
-        forget_workspaces(&ctx.current, &target_names, &ctx.cwd, &ctx.repo_root, &ctx.parent_dir)?;
+        forget_workspaces(&ctx.current, &target_names, &ctx.cwd, &ctx.repo_root, &ctx.workspace_root)?;
 
     if results.is_empty() {
         println!("Nothing changed.");
@@ -82,10 +82,10 @@ pub fn forget(options: ForgetOptions, parent_dir: Option<&Path>) -> Result<()> {
     Ok(())
 }
 
-pub fn list(parent_dir: Option<&Path>) -> Result<()> {
-    let ctx = CommandContext::load(parent_dir)?;
+pub fn list(workspace_root: Option<&Path>) -> Result<()> {
+    let ctx = CommandContext::load(workspace_root)?;
 
-    for ws in list_workspaces(&ctx.current, &ctx.repo_root, &ctx.parent_dir) {
+    for ws in list_workspaces(&ctx.current, &ctx.repo_root, &ctx.workspace_root) {
         println!("{ws}");
     }
 
@@ -96,16 +96,16 @@ struct CommandContext {
     cwd: PathBuf,
     current: LoadedWorkspace,
     repo_root: PathBuf,
-    parent_dir: PathBuf,
+    workspace_root: PathBuf,
 }
 
 impl CommandContext {
-    fn load(configured_parent: Option<&Path>) -> Result<Self> {
+    fn load(workspace_root: Option<&Path>) -> Result<Self> {
         let cwd = current_dir().context("failed to determine current directory")?;
         let current = load_workspace(&cwd)?;
         let repo_root = repo_root_from_repo_path(current.workspace.repo_path())?;
-        let parent_dir = resolve_parent_dir(&cwd, &repo_root, configured_parent)?;
-        Ok(Self { cwd, current, repo_root, parent_dir })
+        let workspace_root = resolve_workspace_root(&cwd, &repo_root, workspace_root)?;
+        Ok(Self { cwd, current, repo_root, workspace_root })
     }
 
     fn workspace_names_or_current(&self, names: &[String]) -> Vec<WorkspaceNameBuf> {
@@ -120,13 +120,13 @@ impl CommandContext {
     }
 }
 
-fn resolve_parent_dir(
+fn resolve_workspace_root(
     cwd: &Path,
     repo_root: &Path,
-    configured_parent: Option<&Path>,
+    configured: Option<&Path>,
 ) -> Result<PathBuf> {
-    if let Some(parent) = configured_parent {
-        return Ok(if parent.is_absolute() { parent.to_path_buf() } else { cwd.join(parent) });
+    if let Some(root) = configured {
+        return Ok(if root.is_absolute() { root.to_path_buf() } else { cwd.join(root) });
     }
 
     let repo_dir_name = repo_root.file_name().context("repo root has no basename")?;
@@ -141,18 +141,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_parent_dir_uses_repo_root_name() {
+    fn default_workspace_root_uses_repo_root_name() {
         let cwd = Path::new("/tmp/workspaces/example-repo/feature");
         let repo_root = Path::new("/tmp/example-repo");
-        let parent = resolve_parent_dir(cwd, repo_root, None).unwrap();
-        assert_eq!(parent, PathBuf::from("/tmp/workspaces/example-repo"));
+        let root = resolve_workspace_root(cwd, repo_root, None).unwrap();
+        assert_eq!(root, PathBuf::from("/tmp/workspaces/example-repo"));
     }
 
     #[test]
-    fn relative_parent_dir_is_resolved_from_cwd() {
+    fn relative_workspace_root_is_resolved_from_cwd() {
         let cwd = Path::new("/tmp/example-repo");
         let repo_root = Path::new("/tmp/example-repo");
-        let parent = resolve_parent_dir(cwd, repo_root, Some(Path::new("../custom"))).unwrap();
-        assert_eq!(parent, PathBuf::from("/tmp/example-repo/../custom"));
+        let root = resolve_workspace_root(cwd, repo_root, Some(Path::new("../custom"))).unwrap();
+        assert_eq!(root, PathBuf::from("/tmp/example-repo/../custom"));
     }
 }

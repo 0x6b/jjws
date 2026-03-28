@@ -136,7 +136,7 @@ pub(crate) fn forget_workspaces(
     target_names: &[WorkspaceNameBuf],
     cwd: &Path,
     repo_root: &Path,
-    parent_dir: &Path,
+    workspace_root: &Path,
 ) -> Result<Vec<ForgetResult>> {
     let known_targets: Vec<_> = target_names
         .iter()
@@ -154,7 +154,7 @@ pub(crate) fn forget_workspaces(
         return Ok(vec![]);
     }
 
-    let locator = WorkspaceLocator::new(current, repo_root, parent_dir);
+    let locator = WorkspaceLocator::new(current, repo_root, workspace_root);
     let planned: Vec<_> = known_targets
         .iter()
         .map(|name| {
@@ -209,9 +209,9 @@ pub(crate) fn forget_workspaces(
 pub(crate) fn list_workspaces(
     current: &LoadedWorkspace,
     repo_root: &Path,
-    parent_dir: &Path,
+    workspace_root: &Path,
 ) -> Vec<WorkspaceListEntry> {
-    let locator = WorkspaceLocator::new(current, repo_root, parent_dir);
+    let locator = WorkspaceLocator::new(current, repo_root, workspace_root);
 
     current
         .repo
@@ -255,16 +255,16 @@ fn repo_host_workspace_name(
 struct WorkspaceLocator<'a> {
     current: &'a LoadedWorkspace,
     repo_root: &'a Path,
-    parent_dir: &'a Path,
+    workspace_root: &'a Path,
     repo_host_name: Option<WorkspaceNameBuf>,
 }
 
 impl<'a> WorkspaceLocator<'a> {
-    fn new(current: &'a LoadedWorkspace, repo_root: &'a Path, parent_dir: &'a Path) -> Self {
+    fn new(current: &'a LoadedWorkspace, repo_root: &'a Path, workspace_root: &'a Path) -> Self {
         Self {
             current,
             repo_root,
-            parent_dir,
+            workspace_root,
             repo_host_name: repo_host_workspace_name(current, repo_root),
         }
     }
@@ -276,7 +276,7 @@ impl<'a> WorkspaceLocator<'a> {
         if self.is_repo_host(workspace_name) {
             return self.repo_root.to_path_buf();
         }
-        self.parent_dir.join(workspace_name.as_str())
+        self.workspace_root.join(workspace_name.as_str())
     }
 
     fn is_repo_host(&self, workspace_name: &WorkspaceName) -> bool {
