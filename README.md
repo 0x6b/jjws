@@ -4,7 +4,8 @@ A small CLI for managing [Jujutsu](https://github.com/jj-vcs/jj) workspaces with
 
 - **Creates workspaces** outside the repo tree (under `<data-dir>/jjws` by default)
 - **Symlinks jj-ignored paths** (e.g. `node_modules/`, `build/`) from the source workspace so tools just work
-- **Opens a Ghostty tab** in the new workspace (macOS, opt-out with `--no-tab`)
+- **Opens a Ghostty tab** in the new workspace (macOS, opt-out with `--no-tab`), optionally running a command
+- **Jumps to workspaces** with `cd` — opens a Ghostty tab at any workspace (defaults to repo-host)
 - **Cleans up** forgotten workspaces by removing their directories when safe
 
 ## Usage
@@ -17,6 +18,7 @@ Usage: jjws [OPTIONS] <COMMAND>
 
 Commands:
   add     Create a new workspace and open it in Ghostty
+  cd      Open a Ghostty tab at a workspace (defaults to repo-host)
   list    List workspaces associated with the repo
   forget  Forget workspaces, then remove their directories when safe. Must be run from the repo-host workspace
   help    Print this message or the help of the given subcommand(s)

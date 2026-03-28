@@ -102,7 +102,7 @@ pub fn cd(name: Option<&str>, workspace_root: Option<&Path>) -> Result<()> {
         None => ctx.repo_root.clone(),
     };
 
-    match open_tab(&path) {
+    match open_tab(&path, None) {
         Ok(Some(_)) => println!("Opened Ghostty tab at {}", path.display()),
         Ok(None) => println!("{}", path.display()),
         Err(err) => {
