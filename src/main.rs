@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use jj_ws::{AddOptions, ForgetOptions, ListOptions, add, forget, list};
+use jj_ws::{AddOptions, ForgetOptions, add, forget, list};
 
 #[derive(Parser, Debug)]
 #[command(about = "Manage jj workspaces with a few local conveniences", version)]
@@ -36,11 +36,16 @@ enum Command {
 }
 
 fn main() -> Result<()> {
-    let Cli { parent_dir, command } = Cli::parse();
+    let Cli {
+        parent_dir,
+        command,
+    } = Cli::parse();
 
     match command {
-        Command::Add { name, no_tab } => add(AddOptions { name, parent_dir, no_tab }),
-        Command::Forget { workspaces } => forget(ForgetOptions { workspaces, parent_dir }),
-        Command::List => list(ListOptions { parent_dir }),
+        Command::Add { name, no_tab } => add(AddOptions { name, no_tab }, parent_dir.as_deref()),
+        Command::Forget { workspaces } => {
+            forget(ForgetOptions { workspaces }, parent_dir.as_deref())
+        }
+        Command::List => list(parent_dir.as_deref()),
     }
 }

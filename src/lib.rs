@@ -18,21 +18,15 @@ use jj_lib::ref_name::WorkspaceNameBuf;
 
 pub struct AddOptions {
     pub name: String,
-    pub parent_dir: Option<PathBuf>,
     pub no_tab: bool,
 }
 
 pub struct ForgetOptions {
     pub workspaces: Vec<String>,
-    pub parent_dir: Option<PathBuf>,
 }
 
-pub struct ListOptions {
-    pub parent_dir: Option<PathBuf>,
-}
-
-pub fn add(options: AddOptions) -> Result<()> {
-    let ctx = CommandContext::load(options.parent_dir.as_deref())?;
+pub fn add(options: AddOptions, parent_dir: Option<&Path>) -> Result<()> {
+    let ctx = CommandContext::load(parent_dir)?;
     let destination = ctx.parent_dir.join(&options.name);
     let workspace_name = WorkspaceNameBuf::from(options.name.as_str());
 
@@ -67,8 +61,8 @@ pub fn add(options: AddOptions) -> Result<()> {
     Ok(())
 }
 
-pub fn forget(options: ForgetOptions) -> Result<()> {
-    let ctx = CommandContext::load(options.parent_dir.as_deref())?;
+pub fn forget(options: ForgetOptions, parent_dir: Option<&Path>) -> Result<()> {
+    let ctx = CommandContext::load(parent_dir)?;
     let target_names = ctx.workspace_names_or_current(&options.workspaces);
     let results =
         forget_workspaces(&ctx.current, &target_names, &ctx.cwd, &ctx.repo_root, &ctx.parent_dir)?;
@@ -88,8 +82,8 @@ pub fn forget(options: ForgetOptions) -> Result<()> {
     Ok(())
 }
 
-pub fn list(options: ListOptions) -> Result<()> {
-    let ctx = CommandContext::load(options.parent_dir.as_deref())?;
+pub fn list(parent_dir: Option<&Path>) -> Result<()> {
+    let ctx = CommandContext::load(parent_dir)?;
 
     for ws in list_workspaces(&ctx.current, &ctx.repo_root, &ctx.parent_dir) {
         println!("{ws}");
