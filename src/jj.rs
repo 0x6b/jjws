@@ -41,7 +41,7 @@ pub(crate) struct ForgetResult {
     pub(crate) deletion: ForgetDeletion,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ForgetDeletion {
     Removed,
     NotFoundAtInferredPath,
@@ -156,14 +156,17 @@ pub(crate) fn forget_workspaces(
     repo_root: &Path,
     parent_dir: &Path,
 ) -> Result<Vec<ForgetResult>> {
-    let mut known_targets = Vec::new();
-    for name in target_names {
-        if current.repo.view().get_wc_commit_id(name).is_none() {
-            eprintln!("Warning: no such workspace: {}", name.as_symbol());
-            continue;
-        }
-        known_targets.push(name.clone());
-    }
+    let known_targets: Vec<_> = target_names
+        .iter()
+        .filter(|name| {
+            let exists = current.repo.view().get_wc_commit_id(name).is_some();
+            if !exists {
+                eprintln!("Warning: no such workspace: {}", name.as_symbol());
+            }
+            exists
+        })
+        .cloned()
+        .collect();
 
     if known_targets.is_empty() {
         return Ok(vec![]);
@@ -200,7 +203,7 @@ pub(crate) fn forget_workspaces(
 
     // Move cwd out before deleting
     for (_, path, deletion) in &planned {
-        if matches!(deletion, ForgetDeletion::Removed) && cwd.starts_with(path) {
+        if *deletion == ForgetDeletion::Removed && cwd.starts_with(path) {
             let parent = path
                 .parent()
                 .context("workspace to delete has no parent directory")?;
@@ -570,7 +573,7 @@ mod tests {
             &parent_dir,
         )?;
         assert_eq!(results.len(), 1);
-        assert!(matches!(results[0].deletion, ForgetDeletion::KeptRepoHost));
+        assert_eq!(results[0].deletion, ForgetDeletion::KeptRepoHost);
         assert!(source_root.exists());
         Ok(())
     }

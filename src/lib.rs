@@ -88,7 +88,7 @@ pub fn forget(options: ForgetOptions) -> Result<()> {
     }
     if results
         .iter()
-        .any(|r| matches!(r.deletion, ForgetDeletion::KeptRepoHost))
+        .any(|r| r.deletion == ForgetDeletion::KeptRepoHost)
     {
         println!("The repo still lives under {}", ctx.repo_root.display());
     }
