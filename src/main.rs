@@ -7,7 +7,8 @@ use jj_ws::{AddOptions, ForgetOptions, add, forget, list};
 #[derive(Parser, Debug)]
 #[command(about = "Manage jj workspaces with a few local conveniences", version)]
 struct Cli {
-    /// Parent directory for non-host workspaces
+    /// Parent directory where workspaces are created as <DIR>/<name>.
+    /// Defaults to ../workspaces/<repo-name> relative to the repo root
     #[arg(long, global = true, value_name = "DIR")]
     parent_dir: Option<PathBuf>,
 
