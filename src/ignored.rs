@@ -160,11 +160,13 @@ fn walk_ignored_paths(
         let ignore_key = if is_dir { format!("{relative_path}/") } else { relative_path.clone() };
         let is_ignored = current_ignores.matches(&ignore_key);
 
+        if is_unconditional_symlink(file_name) {
+            ignored_paths.push(PathBuf::from(&relative_path));
+            continue;
+        }
+
         if is_dir {
-            let is_unconditional = is_unconditional_symlink(relative_dir, file_name, true);
-            if is_unconditional
-                || (is_ignored && !tracked_paths.has_tracked_descendants(&relative_path))
-            {
+            if is_ignored && !tracked_paths.has_tracked_descendants(&relative_path) {
                 ignored_paths.push(PathBuf::from(&relative_path));
                 continue;
             }
@@ -176,11 +178,8 @@ fn walk_ignored_paths(
                 current_ignores.clone(),
                 ignored_paths,
             )?;
-        } else {
-            let is_unconditional = is_unconditional_symlink(relative_dir, file_name, false);
-            if is_unconditional || (is_ignored && !tracked_paths.contains(&relative_path)) {
-                ignored_paths.push(PathBuf::from(relative_path));
-            }
+        } else if is_ignored && !tracked_paths.contains(&relative_path) {
+            ignored_paths.push(PathBuf::from(relative_path));
         }
     }
 
@@ -202,29 +201,21 @@ fn should_skip_root_entry(source_root: &Path, current_dir: &Path, file_name: &Os
     current_dir == source_root && (file_name == ".jj" || file_name == ".git")
 }
 
-struct UnconditionalPattern {
-    name: &'static str,
-    is_dir: bool,
-    root_only: bool,
-}
-
-const UNCONDITIONAL_SYMLINKS: &[UnconditionalPattern] = &[
-    UnconditionalPattern { name: "CLAUDE.md", is_dir: false, root_only: true },
-    UnconditionalPattern { name: ".mcp.json", is_dir: false, root_only: true },
-    UnconditionalPattern { name: "AGENTS.md", is_dir: false, root_only: true },
-    UnconditionalPattern { name: ".env", is_dir: false, root_only: true },
-    UnconditionalPattern { name: ".env.local", is_dir: false, root_only: true },
-    UnconditionalPattern { name: ".env.development", is_dir: false, root_only: true },
-    UnconditionalPattern { name: "CLAUDE.local.md", is_dir: false, root_only: false },
-    UnconditionalPattern { name: "scratch", is_dir: true, root_only: false },
-    UnconditionalPattern { name: ".pi", is_dir: true, root_only: false },
+const UNCONDITIONAL_SYMLINKS: &[&str] = &[
+    ".claude",
+    ".env",
+    ".env.development",
+    ".env.local",
+    ".mcp.json",
+    ".pi",
+    "AGENTS.md",
+    "CLAUDE.local.md",
+    "CLAUDE.md",
+    "scratch",
 ];
 
-fn is_unconditional_symlink(relative_dir: &str, file_name: &str, is_dir: bool) -> bool {
-    let is_root = relative_dir.is_empty();
-    UNCONDITIONAL_SYMLINKS
-        .iter()
-        .any(|p| p.name == file_name && p.is_dir == is_dir && (is_root || !p.root_only))
+fn is_unconditional_symlink(file_name: &str) -> bool {
+    UNCONDITIONAL_SYMLINKS.contains(&file_name)
 }
 
 #[cfg(unix)]
