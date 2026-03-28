@@ -24,7 +24,11 @@ pub struct AddOptions {
 
 pub fn add(options: AddOptions, workspace_root: Option<&Path>) -> Result<()> {
     let ctx = CommandContext::load(workspace_root)?;
-    let destination = ctx.workspace_root.join(&options.name);
+    let repo_dir_name = ctx
+        .repo_root
+        .file_name()
+        .context("repo root has no directory name")?;
+    let destination = ctx.workspace_root.join(repo_dir_name).join(&options.name);
     let workspace_name = WorkspaceNameBuf::from(options.name.as_str());
 
     create_workspace(&ctx.current, &destination, workspace_name)?;
