@@ -12,11 +12,14 @@ use dirs::{config_dir, home_dir};
 use dunce::canonicalize;
 use gethostname::gethostname;
 use jj_lib::{
+    backend::CommitId,
     commit::Commit,
     config::{ConfigLayer, ConfigResolutionContext, ConfigSource, StackedConfig, resolve},
     file_util::path_from_bytes,
+    object_id::ObjectId as _,
     ref_name::{WorkspaceName, WorkspaceNameBuf},
     repo::{ReadonlyRepo, Repo as _, StoreFactories},
+    revset::ResolvedExpression,
     rewrite::merge_commit_trees,
     settings::UserSettings,
     workspace::{Workspace, default_working_copy_factories, default_working_copy_factory},
@@ -28,6 +31,12 @@ pub(crate) struct LoadedWorkspace {
     pub(crate) repo: Arc<ReadonlyRepo>,
 }
 
+pub(crate) struct CommitInfo {
+    pub(crate) change_id: String,
+    pub(crate) commit_id: String,
+    pub(crate) description: String,
+}
+
 pub(crate) struct WorkspaceListEntry {
     pub(crate) name: WorkspaceNameBuf,
     pub(crate) path: PathBuf,
@@ -36,6 +45,7 @@ pub(crate) struct WorkspaceListEntry {
     pub(crate) is_repo_host: bool,
     pub(crate) created: Option<jiff::Zoned>,
     pub(crate) modified: Option<jiff::Zoned>,
+    pub(crate) commits: Vec<CommitInfo>,
 }
 
 pub(crate) struct ForgetResult {
@@ -93,7 +103,11 @@ impl Display for WorkspaceListEntry {
             created,
             modified,
             self.path.display()
-        )
+        )?;
+        for c in &self.commits {
+            write!(f, "\n    {} {} {}", c.change_id, c.commit_id, c.description)?;
+        }
+        Ok(())
     }
 }
 
@@ -218,17 +232,105 @@ pub(crate) fn forget_workspaces(
         .collect()
 }
 
+const MAX_COMMITS_PER_WORKSPACE: usize = 5;
+
+fn has_multiple_children(
+    repo: &ReadonlyRepo,
+    commit_id: &CommitId,
+    visible_heads: &[CommitId],
+) -> bool {
+    let expr = ResolvedExpression::DagRange {
+        roots: Box::new(ResolvedExpression::Commits(vec![commit_id.clone()])),
+        heads: Box::new(ResolvedExpression::Commits(visible_heads.to_vec())),
+        generation_from_roots: 1..2,
+    };
+    let Ok(revset) = repo
+        .readonly_index()
+        .as_index()
+        .evaluate_revset(&expr, repo.store())
+    else {
+        return false;
+    };
+    revset.iter().take(2).flatten().count() > 1
+}
+
+fn shorten_id(hex: &str, min_len: usize) -> String {
+    let len = min_len.max(1).min(hex.len());
+    hex[..len].to_string()
+}
+
+fn collect_workspace_commits(repo: &ReadonlyRepo, wc_commit_id: &CommitId) -> Vec<CommitInfo> {
+    let mut result = Vec::new();
+    let Ok(mut commit) = repo.store().get_commit(wc_commit_id) else {
+        return result;
+    };
+    let visible_heads: Vec<CommitId> = repo.view().heads().iter().cloned().collect();
+
+    loop {
+        // Skip empty (no-change) commits
+        if commit.is_empty(repo).unwrap_or(false) {
+            let parent_ids = commit.parent_ids();
+            if parent_ids.len() == 1 {
+                if let Ok(parent) = repo.store().get_commit(&parent_ids[0]) {
+                    commit = parent;
+                    continue;
+                }
+            }
+            break;
+        }
+
+        let change_hex = commit.change_id().hex();
+        let commit_hex = commit.id().hex();
+        let change_len = repo
+            .shortest_unique_change_id_prefix_len(commit.change_id())
+            .unwrap_or(8);
+        let commit_len = repo
+            .readonly_index()
+            .as_index()
+            .shortest_unique_commit_id_prefix_len(commit.id())
+            .unwrap_or(8);
+        let first_line = commit.description().lines().next().unwrap_or("");
+        let description = if first_line.is_empty() {
+            "(no description set)".to_string()
+        } else {
+            first_line.to_string()
+        };
+
+        let is_fork = has_multiple_children(repo, commit.id(), &visible_heads);
+
+        result.push(CommitInfo {
+            change_id: shorten_id(&change_hex, change_len),
+            commit_id: shorten_id(&commit_hex, commit_len),
+            description,
+        });
+
+        if is_fork || result.len() >= MAX_COMMITS_PER_WORKSPACE {
+            break;
+        }
+
+        let parent_ids = commit.parent_ids();
+        if parent_ids.len() != 1 {
+            break;
+        }
+        match repo.store().get_commit(&parent_ids[0]) {
+            Ok(parent) => commit = parent,
+            Err(_) => break,
+        }
+    }
+
+    result
+}
+
 pub(crate) fn list_workspaces(
     current: &LoadedWorkspace,
     repo_root: &Path,
     workspace_root: &Path,
+    include_commits: bool,
 ) -> Vec<WorkspaceListEntry> {
     let locator = WorkspaceLocator::new(current, repo_root, workspace_root);
+    let wc_commit_ids = current.repo.view().wc_commit_ids();
 
-    let mut entries: Vec<_> = current
-        .repo
-        .view()
-        .wc_commit_ids()
+    let mut entries: Vec<_> = wc_commit_ids
         .keys()
         .map(|name| {
             let path = locator.path(name);
@@ -241,6 +343,14 @@ pub(crate) fn list_workspaces(
                 .as_ref()
                 .and_then(|m| m.modified().ok())
                 .and_then(|t| jiff::Zoned::try_from(t).ok());
+            let commits = if include_commits {
+                wc_commit_ids
+                    .get(name)
+                    .map(|id| collect_workspace_commits(&current.repo, id))
+                    .unwrap_or_default()
+            } else {
+                vec![]
+            };
             WorkspaceListEntry {
                 name: name.clone(),
                 exists_on_disk: path.exists(),
@@ -249,6 +359,7 @@ pub(crate) fn list_workspaces(
                 created,
                 modified,
                 path,
+                commits,
             }
         })
         .collect();

@@ -2,7 +2,7 @@
 
 # Helper: extract workspace names from `jjws list` output
 function __jjws_workspaces
-    jjws list 2>/dev/null | string replace -r '^[* ] ([^\t]+)\t.*' '$1'
+    jjws list --porcelain 2>/dev/null | string replace -r '^[* ] ([^\t]+)\t.*' '$1'
 end
 
 # Disable file completions by default
@@ -30,7 +30,8 @@ complete -c jjws -n '__fish_seen_subcommand_from cd' -a '(__jjws_workspaces)' -d
 # forget: complete workspace names
 complete -c jjws -n '__fish_seen_subcommand_from forget' -a '(__jjws_workspaces)' -d 'Workspace name'
 
-# list: no additional arguments
+# list: --porcelain flag
+complete -c jjws -n '__fish_seen_subcommand_from list' -l porcelain -d 'Machine-readable output (no commit details)'
 
 # help: complete subcommand names
 complete -c jjws -n '__fish_seen_subcommand_from help' -a 'new cd list forget' -d 'Subcommand'

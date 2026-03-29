@@ -125,10 +125,11 @@ pub fn cd(name: Option<&str>, workspace_root: Option<&Path>) -> Result<()> {
     Ok(())
 }
 
-pub fn list(workspace_root: Option<&Path>) -> Result<()> {
+pub fn list(porcelain: bool, workspace_root: Option<&Path>) -> Result<()> {
     let ctx = CommandContext::load(workspace_root)?;
+    let include_commits = !porcelain;
 
-    for ws in list_workspaces(&ctx.current, &ctx.repo_root, &ctx.workspace_root) {
+    for ws in list_workspaces(&ctx.current, &ctx.repo_root, &ctx.workspace_root, include_commits) {
         println!("{ws}");
     }
 

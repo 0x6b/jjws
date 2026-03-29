@@ -37,7 +37,11 @@ enum Command {
         name: Option<String>,
     },
     /// List workspaces associated with the repo
-    List,
+    List {
+        /// Machine-readable output (no commit details)
+        #[arg(long)]
+        porcelain: bool,
+    },
     /// Forget workspaces, then remove their directories when safe.
     /// Must be run from the repo-host workspace.
     Forget {
@@ -65,7 +69,7 @@ fn main() -> Result<()> {
             ws_root,
         ),
         Command::Forget { workspaces } => forget(workspaces, ws_root),
-        Command::List => list(ws_root),
+        Command::List { porcelain } => list(porcelain, ws_root),
         Command::Cd { name } => cd(name.as_deref(), ws_root),
     }
 }
