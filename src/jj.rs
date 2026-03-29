@@ -316,6 +316,20 @@ fn has_multiple_children(
 
 const ID_DISPLAY_LEN: usize = 8;
 
+fn hex_to_reverse_hex(hex: &str) -> String {
+    const REVERSE_HEX: &[u8; 16] = b"zyxwvutsrqponmlk";
+    hex.bytes()
+        .map(|b| {
+            let digit = match b {
+                b'0'..=b'9' => b - b'0',
+                b'a'..=b'f' => 10 + b - b'a',
+                _ => return b as char,
+            };
+            REVERSE_HEX[digit as usize] as char
+        })
+        .collect()
+}
+
 fn shorten_id(hex: &str, display_len: usize) -> String {
     let len = display_len.max(1).min(hex.len());
     hex[..len].to_string()
@@ -343,7 +357,7 @@ fn collect_workspace_commits(repo: &ReadonlyRepo, wc_commit_id: &CommitId) -> Ve
             break;
         }
 
-        let change_hex = commit.change_id().hex();
+        let change_hex = hex_to_reverse_hex(&commit.change_id().hex());
         let commit_hex = commit.id().hex();
         let change_len = repo
             .shortest_unique_change_id_prefix_len(commit.change_id())
