@@ -65,8 +65,8 @@ complete -c jjws -n '__fish_seen_subcommand_from new' -l no-tab -d 'Skip opening
 # cd: complete workspace names
 complete -c jjws -n '__fish_seen_subcommand_from cd' -a '(__jjws_workspaces)'
 
-# forget: complete workspace names
-complete -c jjws -n '__fish_seen_subcommand_from forget' -a '(__jjws_workspaces)'
+# forget: complete workspace names (exclude "default" — forgetting it makes no sense)
+complete -c jjws -n '__fish_seen_subcommand_from forget' -a '(__jjws_workspaces | string match -rv "^default(\t|\$)")'
 
 # list: --porcelain flag
 complete -c jjws -n '__fish_seen_subcommand_from list' -l porcelain -d 'Machine-readable output (no commit details)'
