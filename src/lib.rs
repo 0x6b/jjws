@@ -130,7 +130,11 @@ pub fn list(porcelain: bool, workspace_root: Option<&Path>) -> Result<()> {
     let include_commits = !porcelain;
 
     for ws in list_workspaces(&ctx.current, &ctx.repo_root, &ctx.workspace_root, include_commits) {
-        println!("{ws}");
+        if porcelain {
+            println!("{ws}");
+        } else {
+            ws.print_colored();
+        }
     }
 
     Ok(())

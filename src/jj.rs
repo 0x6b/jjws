@@ -8,6 +8,7 @@ use std::{
 };
 
 use anyhow::{Context, Result, bail};
+use colored::Colorize;
 use dirs::{config_dir, home_dir};
 use dunce::canonicalize;
 use gethostname::gethostname;
@@ -33,8 +34,11 @@ pub(crate) struct LoadedWorkspace {
 
 pub(crate) struct CommitInfo {
     pub(crate) change_id: String,
+    pub(crate) change_id_prefix_len: usize,
     pub(crate) commit_id: String,
+    pub(crate) commit_id_prefix_len: usize,
     pub(crate) description: String,
+    pub(crate) is_empty: bool,
 }
 
 pub(crate) struct WorkspaceListEntry {
@@ -103,11 +107,67 @@ impl Display for WorkspaceListEntry {
             created,
             modified,
             self.path.display()
-        )?;
+        )
+    }
+}
+
+impl WorkspaceListEntry {
+    pub(crate) fn print_colored(&self) {
+        let marker = if self.is_current {
+            "*".green().bold()
+        } else {
+            " ".normal()
+        };
+        let name_str = self.name.as_str();
+        let name = if self.is_current {
+            name_str.green().bold()
+        } else {
+            name_str.bold()
+        };
+        let suffix = if self.is_repo_host {
+            " [repo-host]".bright_cyan()
+        } else if !self.exists_on_disk {
+            " [out-of-control]".yellow()
+        } else {
+            "".normal()
+        };
+        let fmt_time = |t: &jiff::Zoned| t.strftime("%Y-%m-%d %H:%M:%S").to_string();
+        let created = self
+            .created
+            .as_ref()
+            .map(fmt_time)
+            .unwrap_or_default()
+            .dimmed();
+        let modified = self
+            .modified
+            .as_ref()
+            .map(fmt_time)
+            .unwrap_or_default()
+            .dimmed();
+        let path = self.path.display().to_string().dimmed();
+        println!("{marker} {name}\t{created}\t{modified}\t{path}{suffix}");
+
         for c in &self.commits {
-            write!(f, "\n    {} {} {}", c.change_id, c.commit_id, c.description)?;
+            let (change_prefix, change_rest) = c.change_id.split_at(
+                c.change_id_prefix_len.min(c.change_id.len()),
+            );
+            let (commit_prefix, commit_rest) = c.commit_id.split_at(
+                c.commit_id_prefix_len.min(c.commit_id.len()),
+            );
+            let empty_marker = if c.is_empty { " (empty)".green() } else { "".normal() };
+            let desc = if c.description == "(no description set)" {
+                c.description.as_str().yellow()
+            } else {
+                c.description.as_str().normal()
+            };
+            println!(
+                "    {}{} {}{}{empty_marker} {desc}",
+                change_prefix.magenta().bold(),
+                change_rest.bright_black(),
+                commit_prefix.blue().bold(),
+                commit_rest.bright_black(),
+            );
         }
-        Ok(())
     }
 }
 
@@ -254,8 +314,10 @@ fn has_multiple_children(
     revset.iter().take(2).flatten().count() > 1
 }
 
-fn shorten_id(hex: &str, min_len: usize) -> String {
-    let len = min_len.max(1).min(hex.len());
+const ID_DISPLAY_LEN: usize = 8;
+
+fn shorten_id(hex: &str, display_len: usize) -> String {
+    let len = display_len.max(1).min(hex.len());
     hex[..len].to_string()
 }
 
@@ -267,8 +329,10 @@ fn collect_workspace_commits(repo: &ReadonlyRepo, wc_commit_id: &CommitId) -> Ve
     let visible_heads: Vec<CommitId> = repo.view().heads().iter().cloned().collect();
 
     loop {
+        let is_empty = commit.is_empty(repo).unwrap_or(false);
+
         // Skip empty (no-change) commits
-        if commit.is_empty(repo).unwrap_or(false) {
+        if is_empty {
             let parent_ids = commit.parent_ids();
             if parent_ids.len() == 1 {
                 if let Ok(parent) = repo.store().get_commit(&parent_ids[0]) {
@@ -299,9 +363,12 @@ fn collect_workspace_commits(repo: &ReadonlyRepo, wc_commit_id: &CommitId) -> Ve
         let is_fork = has_multiple_children(repo, commit.id(), &visible_heads);
 
         result.push(CommitInfo {
-            change_id: shorten_id(&change_hex, change_len),
-            commit_id: shorten_id(&commit_hex, commit_len),
+            change_id: shorten_id(&change_hex, ID_DISPLAY_LEN.max(change_len)),
+            change_id_prefix_len: change_len,
+            commit_id: shorten_id(&commit_hex, ID_DISPLAY_LEN.max(commit_len)),
+            commit_id_prefix_len: commit_len,
             description,
+            is_empty,
         });
 
         if is_fork || result.len() >= MAX_COMMITS_PER_WORKSPACE {
