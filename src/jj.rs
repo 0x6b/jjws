@@ -404,7 +404,8 @@ pub(crate) fn list_workspaces(
                 .as_ref()
                 .and_then(|m| m.modified().ok())
                 .and_then(|t| Zoned::try_from(t).ok());
-            let commits = if include_commits {
+            let is_repo_host = locator.is_repo_host(name);
+            let commits = if include_commits && !is_repo_host {
                 wc_commit_ids
                     .get(name)
                     .map(|id| collect_workspace_commits(&current.repo, id))
@@ -416,7 +417,7 @@ pub(crate) fn list_workspaces(
                 name: name.clone(),
                 exists_on_disk: path.exists(),
                 is_current: name == current.workspace.workspace_name(),
-                is_repo_host: locator.is_repo_host(name),
+                is_repo_host,
                 created,
                 modified,
                 path,
