@@ -1,5 +1,5 @@
 use std::{
-    env::set_current_dir,
+    env::{set_current_dir, vars},
     fmt::{self, Display, Formatter},
     fs::{create_dir_all, read, read_dir, remove_dir_all},
     path::{Path, PathBuf},
@@ -165,7 +165,7 @@ pub(crate) fn load_workspace(start_dir: &Path) -> Result<LoadedWorkspace> {
         &StoreFactories::default(),
         &default_working_copy_factories(),
     )?;
-    let repo = workspace.repo_loader().load_at_head()?;
+    let repo = workspace.repo_loader().load_at_head().block_on()?;
     Ok(LoadedWorkspace { workspace, repo })
 }
 
@@ -186,7 +186,8 @@ pub(crate) fn create_workspace(
         &current.repo,
         &*default_working_copy_factory(),
         workspace_name.clone(),
-    )?;
+    )
+    .block_on()?;
 
     copy_sparse_patterns(&current.workspace, &mut new_workspace)?;
 
@@ -196,7 +197,9 @@ pub(crate) fn create_workspace(
         workspace_name,
     )?;
     let new_wc_commit = new_repo.store().get_commit(&wc_commit_id)?;
-    new_workspace.check_out(new_repo.op_id().clone(), None, &new_wc_commit)?;
+    new_workspace
+        .check_out(new_repo.op_id().clone(), None, &new_wc_commit)
+        .block_on()?;
 
     Ok(())
 }
@@ -235,9 +238,9 @@ pub(crate) fn forget_workspaces(
 
     let mut tx = current.repo.start_transaction();
     for &name in &known_targets {
-        tx.repo_mut().remove_wc_commit(name)?;
+        tx.repo_mut().remove_wc_commit(name).block_on()?;
     }
-    tx.repo_mut().rebase_descendants()?;
+    tx.repo_mut().rebase_descendants().block_on()?;
 
     let description = match known_targets.as_slice() {
         [name] => format!("forget workspace {}", name.as_symbol()),
@@ -252,7 +255,7 @@ pub(crate) fn forget_workspaces(
             s
         }
     };
-    tx.commit(description)?;
+    tx.commit(description).block_on()?;
 
     // Move cwd out before deleting
     if let Some((_, path, _)) = planned
@@ -546,15 +549,15 @@ fn create_initial_workspace_commit(
     let parents = current_workspace_parents(tx.base_repo(), current_workspace_name)?;
     let tree = merge_commit_trees(tx.repo(), &parents).block_on()?;
     let parent_ids = parents.iter().map(|c| c.id().clone()).collect();
-    let new_wc_commit = tx.repo_mut().new_commit(parent_ids, tree).write()?;
+    let new_wc_commit = tx.repo_mut().new_commit(parent_ids, tree).write().block_on()?;
     let description = format!(
         "create initial working-copy commit in workspace {}",
         new_workspace_name.as_symbol()
     );
-    tx.repo_mut().edit(new_workspace_name, &new_wc_commit)?;
-    tx.repo_mut().rebase_descendants()?;
+    tx.repo_mut().edit(new_workspace_name, &new_wc_commit).block_on()?;
+    tx.repo_mut().rebase_descendants().block_on()?;
     let commit_id = new_wc_commit.id().clone();
-    let new_repo = tx.commit(description)?;
+    let new_repo = tx.commit(description).block_on()?;
     Ok((new_repo, commit_id))
 }
 
@@ -610,12 +613,14 @@ fn load_settings(workspace_root: &Path) -> Result<UserSettings> {
         .into_string()
         .unwrap_or_else(|hostname| hostname.to_string_lossy().into_owned());
     let home_dir = home_dir();
+    let environment = vars().collect();
     let context = ConfigResolutionContext {
         home_dir: home_dir.as_deref(),
         repo_path: Some(workspace_root),
         workspace_path: Some(workspace_root),
         command: None,
         hostname: &hostname,
+        environment: &environment,
     };
     let resolved = resolve(&config, &context)?;
     Ok(UserSettings::from_config(resolved)?)
@@ -673,7 +678,7 @@ mod tests {
         create_dir_all(&source_root)?;
 
         let settings = test_settings();
-        let (mut workspace, repo) = Workspace::init_simple(&settings, &source_root)?;
+        let (mut workspace, repo) = Workspace::init_simple(&settings, &source_root).block_on()?;
 
         let mut tx = repo.start_transaction();
         let parent_commit = tx
@@ -683,14 +688,18 @@ mod tests {
                 repo.store().root_commit().tree(),
             )
             .set_description("base")
-            .write()?;
+            .write()
+            .block_on()?;
         let current_wc_commit = tx
             .repo_mut()
-            .check_out(workspace.workspace_name().to_owned(), &parent_commit)?;
-        tx.repo_mut().rebase_descendants()?;
-        let repo = tx.commit("set up workspace")?;
+            .check_out(workspace.workspace_name().to_owned(), &parent_commit)
+            .block_on()?;
+        tx.repo_mut().rebase_descendants().block_on()?;
+        let repo = tx.commit("set up workspace").block_on()?;
         let current_wc_commit = repo.store().get_commit(current_wc_commit.id())?;
-        workspace.check_out(repo.op_id().clone(), None, &current_wc_commit)?;
+        workspace
+            .check_out(repo.op_id().clone(), None, &current_wc_commit)
+            .block_on()?;
 
         let loaded = LoadedWorkspace { workspace, repo };
         let destination = temp_dir.path().join("secondary");
@@ -717,7 +726,7 @@ mod tests {
         create_dir_all(&parent_dir)?;
 
         let settings = test_settings();
-        let (workspace, repo) = Workspace::init_simple(&settings, &source_root)?;
+        let (workspace, repo) = Workspace::init_simple(&settings, &source_root).block_on()?;
         let loaded = LoadedWorkspace { workspace, repo };
         create_workspace(&loaded, &secondary_root, WorkspaceNameBuf::from("secondary"))?;
 
@@ -759,7 +768,7 @@ mod tests {
         create_dir_all(&parent_dir)?;
 
         let settings = test_settings();
-        let (workspace, repo) = Workspace::init_simple(&settings, &source_root)?;
+        let (workspace, repo) = Workspace::init_simple(&settings, &source_root).block_on()?;
         let loaded = LoadedWorkspace { workspace, repo };
 
         let results = forget_workspaces(
