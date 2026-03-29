@@ -31,19 +31,18 @@ pub fn symlink_ignored_paths(
     let base_ignores = load_base_ignores(repo)?;
     let ignored_paths = collect_ignored_paths(source_root, &tracked_paths, &base_ignores)?;
 
-    ignored_paths
-        .iter()
-        .filter(|rel| destination_root.join(rel).symlink_metadata().is_err())
-        .try_fold(0usize, |created, rel| {
-            let source_path = source_root.join(rel);
-            let destination_path = destination_root.join(rel);
-            if let Some(parent) = destination_path.parent() {
-                create_dir_all(parent)
-                    .with_context(|| format!("failed to create {}", parent.display()))?;
-            }
-            create_symlink(&source_path, &destination_path)?;
-            Ok(created + 1)
-        })
+    ignored_paths.iter().try_fold(0usize, |created, rel| {
+        let destination_path = destination_root.join(rel);
+        if destination_path.symlink_metadata().is_ok() {
+            return Ok(created);
+        }
+        if let Some(parent) = destination_path.parent() {
+            create_dir_all(parent)
+                .with_context(|| format!("failed to create {}", parent.display()))?;
+        }
+        create_symlink(&source_root.join(rel), &destination_path)?;
+        Ok(created + 1)
+    })
 }
 
 fn collect_tracked_paths(
@@ -151,14 +150,18 @@ fn walk_ignored_paths(
             .file_type()
             .with_context(|| format!("failed to read {}", source_path.display()))?
             .is_dir();
-        let relative_path = if relative_dir.is_empty() {
-            file_name.to_string()
-        } else {
-            format!("{relative_dir}/{file_name}")
-        };
+        let mut relative_path = String::with_capacity(relative_dir.len() + file_name.len() + 1);
+        if !relative_dir.is_empty() {
+            relative_path.push_str(relative_dir);
+            relative_path.push('/');
+        }
+        relative_path.push_str(file_name);
 
         let is_ignored = if is_dir {
-            current_ignores.matches(&format!("{relative_path}/"))
+            relative_path.push('/');
+            let matched = current_ignores.matches(&relative_path);
+            relative_path.pop();
+            matched
         } else {
             current_ignores.matches(&relative_path)
         };
@@ -194,7 +197,11 @@ fn load_directory_gitignore(
     relative_dir: &str,
     inherited_ignores: Arc<GitIgnoreFile>,
 ) -> Result<Arc<GitIgnoreFile>> {
-    let prefix = if relative_dir.is_empty() { String::new() } else { format!("{relative_dir}/") };
+    let mut prefix = String::with_capacity(relative_dir.len() + 1);
+    if !relative_dir.is_empty() {
+        prefix.push_str(relative_dir);
+        prefix.push('/');
+    }
     inherited_ignores
         .chain_with_file(&prefix, current_dir.join(".gitignore"))
         .map_err(Into::into)

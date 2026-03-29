@@ -87,9 +87,8 @@ impl Display for ForgetResult {
     }
 }
 
-fn format_time(time: Option<&Zoned>) -> String {
-    time.map(|t| t.strftime("%Y-%m-%d %H:%M:%S").to_string())
-        .unwrap_or_default()
+fn write_time(f: &mut Formatter<'_>, time: Option<&Zoned>) -> fmt::Result {
+    if let Some(t) = time { write!(f, "{}", t.strftime("%Y-%m-%d %H:%M:%S")) } else { Ok(()) }
 }
 
 fn split_prefix(s: &str, n: usize) -> (&str, &str) {
@@ -116,8 +115,13 @@ impl WorkspaceListEntry {
             s @ " [out-of-control]" => s.yellow(),
             _ => "".normal(),
         };
-        let created = format_time(self.created.as_ref()).dimmed();
-        let modified = format_time(self.modified.as_ref()).dimmed();
+        let time_fmt = |t: Option<&Zoned>| {
+            t.map(|t| t.strftime("%Y-%m-%d %H:%M:%S").to_string())
+                .unwrap_or_default()
+                .dimmed()
+        };
+        let created = time_fmt(self.created.as_ref());
+        let modified = time_fmt(self.modified.as_ref());
         let path = self.path.display().to_string().dimmed();
         println!("{marker} {name}\t{created}\t{modified}\t{path}{suffix}");
 
@@ -144,15 +148,11 @@ impl WorkspaceListEntry {
 impl Display for WorkspaceListEntry {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let marker = if self.is_current { "*" } else { " " };
-        write!(
-            f,
-            "{marker} {}\t{}\t{}\t{}{}",
-            self.name.as_symbol(),
-            format_time(self.created.as_ref()),
-            format_time(self.modified.as_ref()),
-            self.path.display(),
-            self.status_suffix(),
-        )
+        write!(f, "{marker} {}\t", self.name.as_symbol())?;
+        write_time(f, self.created.as_ref())?;
+        write!(f, "\t")?;
+        write_time(f, self.modified.as_ref())?;
+        write!(f, "\t{}{}", self.path.display(), self.status_suffix())
     }
 }
 
@@ -217,17 +217,16 @@ pub(crate) fn forget_workspaces(
             }
             exists
         })
-        .cloned()
         .collect();
 
     if known_targets.is_empty() {
-        return Ok(vec![]);
+        return Ok(Vec::new());
     }
 
     let locator = WorkspaceLocator::new(current, repo_root, workspace_root);
     let planned: Vec<_> = known_targets
         .iter()
-        .map(|name| {
+        .map(|&name| {
             let path = locator.path(name);
             let deletion = ForgetDeletion::plan(&path);
             (name.clone(), path, deletion)
@@ -235,17 +234,23 @@ pub(crate) fn forget_workspaces(
         .collect();
 
     let mut tx = current.repo.start_transaction();
-    for name in &known_targets {
+    for &name in &known_targets {
         tx.repo_mut().remove_wc_commit(name)?;
     }
     tx.repo_mut().rebase_descendants()?;
 
     let description = match known_targets.as_slice() {
         [name] => format!("forget workspace {}", name.as_symbol()),
-        names => format!(
-            "forget workspaces {}",
-            names.iter().map(|n| n.as_str()).collect::<Vec<_>>().join(", ")
-        ),
+        names => {
+            let mut s = String::from("forget workspaces ");
+            for (i, name) in names.iter().enumerate() {
+                if i > 0 {
+                    s.push_str(", ");
+                }
+                s.push_str(name.as_str());
+            }
+            s
+        }
     };
     tx.commit(description)?;
 
@@ -542,13 +547,14 @@ fn create_initial_workspace_commit(
     let tree = merge_commit_trees(tx.repo(), &parents).block_on()?;
     let parent_ids = parents.iter().map(|c| c.id().clone()).collect();
     let new_wc_commit = tx.repo_mut().new_commit(parent_ids, tree).write()?;
-    tx.repo_mut().edit(new_workspace_name.clone(), &new_wc_commit)?;
-    tx.repo_mut().rebase_descendants()?;
-    let commit_id = new_wc_commit.id().clone();
-    let new_repo = tx.commit(format!(
+    let description = format!(
         "create initial working-copy commit in workspace {}",
         new_workspace_name.as_symbol()
-    ))?;
+    );
+    tx.repo_mut().edit(new_workspace_name, &new_wc_commit)?;
+    tx.repo_mut().rebase_descendants()?;
+    let commit_id = new_wc_commit.id().clone();
+    let new_repo = tx.commit(description)?;
     Ok((new_repo, commit_id))
 }
 
@@ -580,10 +586,12 @@ fn find_workspace_root(start_dir: &Path) -> Result<&Path> {
         if current_dir.join(".jj").is_dir() {
             return Ok(current_dir);
         }
-        current_dir = current_dir.parent().context(format!(
-            "no Jujutsu workspace found in '{}' or any parent directory",
-            start_dir.display()
-        ))?;
+        current_dir = current_dir.parent().with_context(|| {
+            format!(
+                "no Jujutsu workspace found in '{}' or any parent directory",
+                start_dir.display()
+            )
+        })?;
     }
 }
 

@@ -56,11 +56,28 @@ fn run_applescript_output(script: &str) -> Result<String> {
 }
 
 fn applescript_escape(input: &str) -> String {
-    input.replace('\\', "\\\\").replace('"', "\\\"")
+    let mut out = String::with_capacity(input.len());
+    for ch in input.chars() {
+        if matches!(ch, '\\' | '"') {
+            out.push('\\');
+        }
+        out.push(ch);
+    }
+    out
 }
 
 fn shell_escape_single(input: &str) -> String {
-    format!("'{}'", input.replace('\'', "'\\''"))
+    let mut out = String::with_capacity(input.len() + 2);
+    out.push('\'');
+    for ch in input.chars() {
+        if ch == '\'' {
+            out.push_str("'\\''");
+        } else {
+            out.push(ch);
+        }
+    }
+    out.push('\'');
+    out
 }
 
 #[cfg(test)]
