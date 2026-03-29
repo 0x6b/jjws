@@ -1,7 +1,6 @@
 use std::{
     env::set_current_dir,
-    fmt,
-    fmt::{Display, Formatter},
+    fmt::{self, Display, Formatter},
     fs::{create_dir_all, read, read_dir, remove_dir_all},
     path::{Path, PathBuf},
     sync::Arc,
@@ -88,51 +87,43 @@ impl Display for ForgetResult {
     }
 }
 
-impl Display for WorkspaceListEntry {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        let marker = if self.is_current { "*" } else { " " };
-        let suffix = if self.is_repo_host {
+fn format_time(time: Option<&Zoned>) -> String {
+    time.map(|t| t.strftime("%Y-%m-%d %H:%M:%S").to_string())
+        .unwrap_or_default()
+}
+
+fn split_prefix(s: &str, n: usize) -> (&str, &str) {
+    s.split_at(n.min(s.len()))
+}
+
+impl WorkspaceListEntry {
+    fn status_suffix(&self) -> &'static str {
+        if self.is_repo_host {
             " [repo-host]"
         } else if !self.exists_on_disk {
             " [out-of-control]"
         } else {
             ""
-        };
-        let fmt_time = |t: &Zoned| t.strftime("%Y-%m-%d %H:%M:%S").to_string();
-        let created = self.created.as_ref().map(fmt_time).unwrap_or_default();
-        let modified = self.modified.as_ref().map(fmt_time).unwrap_or_default();
-        write!(
-            f,
-            "{marker} {}\t{created}\t{modified}\t{}{suffix}",
-            self.name.as_symbol(),
-            self.path.display()
-        )
+        }
     }
-}
 
-impl WorkspaceListEntry {
     pub(crate) fn print_colored(&self) {
         let marker = if self.is_current { "*".green().bold() } else { " ".normal() };
         let name_str = self.name.as_str();
         let name = if self.is_current { name_str.green().bold() } else { name_str.bold() };
-        let suffix = if self.is_repo_host {
-            " [repo-host]".bright_cyan()
-        } else if !self.exists_on_disk {
-            " [out-of-control]".yellow()
-        } else {
-            "".normal()
+        let suffix = match self.status_suffix() {
+            s @ " [repo-host]" => s.bright_cyan(),
+            s @ " [out-of-control]" => s.yellow(),
+            _ => "".normal(),
         };
-        let fmt_time = |t: &Zoned| t.strftime("%Y-%m-%d %H:%M:%S").to_string();
-        let created = self.created.as_ref().map(fmt_time).unwrap_or_default().dimmed();
-        let modified = self.modified.as_ref().map(fmt_time).unwrap_or_default().dimmed();
+        let created = format_time(self.created.as_ref()).dimmed();
+        let modified = format_time(self.modified.as_ref()).dimmed();
         let path = self.path.display().to_string().dimmed();
         println!("{marker} {name}\t{created}\t{modified}\t{path}{suffix}");
 
         for c in &self.commits {
-            let (change_prefix, change_rest) =
-                c.change_id.split_at(c.change_id_prefix_len.min(c.change_id.len()));
-            let (commit_prefix, commit_rest) =
-                c.commit_id.split_at(c.commit_id_prefix_len.min(c.commit_id.len()));
+            let (change_prefix, change_rest) = split_prefix(&c.change_id, c.change_id_prefix_len);
+            let (commit_prefix, commit_rest) = split_prefix(&c.commit_id, c.commit_id_prefix_len);
             let empty_marker = if c.is_empty { " (empty)".green() } else { "".normal() };
             let desc = if c.description == "(no description set)" {
                 c.description.as_str().yellow()
@@ -150,6 +141,21 @@ impl WorkspaceListEntry {
     }
 }
 
+impl Display for WorkspaceListEntry {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let marker = if self.is_current { "*" } else { " " };
+        write!(
+            f,
+            "{marker} {}\t{}\t{}\t{}{}",
+            self.name.as_symbol(),
+            format_time(self.created.as_ref()),
+            format_time(self.modified.as_ref()),
+            self.path.display(),
+            self.status_suffix(),
+        )
+    }
+}
+
 pub(crate) fn load_workspace(start_dir: &Path) -> Result<LoadedWorkspace> {
     let workspace_root = find_workspace_root(start_dir)?;
     let settings = load_settings(workspace_root)?;
@@ -158,8 +164,7 @@ pub(crate) fn load_workspace(start_dir: &Path) -> Result<LoadedWorkspace> {
         workspace_root,
         &StoreFactories::default(),
         &default_working_copy_factories(),
-    )
-    .map_err(anyhow::Error::from)?;
+    )?;
     let repo = workspace.repo_loader().load_at_head()?;
     Ok(LoadedWorkspace { workspace, repo })
 }
@@ -185,12 +190,12 @@ pub(crate) fn create_workspace(
 
     copy_sparse_patterns(&current.workspace, &mut new_workspace)?;
 
-    let (new_repo, new_wc_commit) = create_initial_workspace_commit(
+    let (new_repo, wc_commit_id) = create_initial_workspace_commit(
         &repo_after_add,
         current.workspace.workspace_name(),
         workspace_name,
     )?;
-    let new_wc_commit = new_repo.store().get_commit(new_wc_commit.id())?;
+    let new_wc_commit = new_repo.store().get_commit(&wc_commit_id)?;
     new_workspace.check_out(new_repo.op_id().clone(), None, &new_wc_commit)?;
 
     Ok(())
@@ -530,39 +535,41 @@ fn create_initial_workspace_commit(
     repo: &Arc<ReadonlyRepo>,
     current_workspace_name: &WorkspaceName,
     new_workspace_name: WorkspaceNameBuf,
-) -> Result<(Arc<ReadonlyRepo>, Commit)> {
+) -> Result<(Arc<ReadonlyRepo>, CommitId)> {
     let mut tx = repo.start_transaction();
     let parents = current_workspace_parents(tx.base_repo(), current_workspace_name)?;
     let tree = merge_commit_trees(tx.repo(), &parents).block_on()?;
-    let parent_ids = parents.iter().map(|commit| commit.id().clone()).collect();
+    let parent_ids = parents.iter().map(|c| c.id().clone()).collect();
     let new_wc_commit = tx.repo_mut().new_commit(parent_ids, tree).write()?;
-    let operation_description = format!(
+    tx.repo_mut().edit(new_workspace_name.clone(), &new_wc_commit)?;
+    tx.repo_mut().rebase_descendants()?;
+    let commit_id = new_wc_commit.id().clone();
+    let new_repo = tx.commit(format!(
         "create initial working-copy commit in workspace {}",
         new_workspace_name.as_symbol()
-    );
-    tx.repo_mut().edit(new_workspace_name, &new_wc_commit)?;
-    tx.repo_mut().rebase_descendants()?;
-    let new_repo = tx.commit(operation_description)?;
-    Ok((new_repo, new_wc_commit))
+    ))?;
+    Ok((new_repo, commit_id))
 }
 
 fn current_workspace_parents(
     repo: &Arc<ReadonlyRepo>,
     workspace_name: &WorkspaceName,
 ) -> Result<Vec<Commit>> {
+    let root = || vec![repo.store().root_commit()];
+
     let Some(wc_commit_id) = repo.view().get_wc_commit_id(workspace_name) else {
-        return Ok(vec![repo.store().root_commit()]);
+        return Ok(root());
     };
 
     let wc_commit = repo.store().get_commit(wc_commit_id)?;
     if wc_commit.parent_ids().is_empty() {
-        return Ok(vec![repo.store().root_commit()]);
+        return Ok(root());
     }
 
     wc_commit
         .parent_ids()
         .iter()
-        .map(|parent_id| repo.store().get_commit(parent_id).map_err(Into::into))
+        .map(|id| repo.store().get_commit(id).map_err(Into::into))
         .collect()
 }
 

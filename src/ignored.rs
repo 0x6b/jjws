@@ -1,14 +1,12 @@
 #[cfg(unix)]
 use std::os::unix::fs::symlink;
 #[cfg(windows)]
-use std::os::windows::fs::symlink_dir;
-#[cfg(windows)]
-use std::os::windows::fs::symlink_file;
+use std::os::windows::fs::{symlink_dir, symlink_file};
 use std::{
     collections::HashSet,
     env::var,
     ffi::OsStr,
-    fs::{DirEntry, create_dir_all, read_dir, symlink_metadata},
+    fs::{DirEntry, create_dir_all, read_dir},
     io,
     path::{Path, PathBuf},
     sync::Arc,
@@ -149,17 +147,21 @@ fn walk_ignored_paths(
             .to_str()
             .context("encountered a non-UTF-8 path while scanning ignored files")?;
         let source_path = entry.path();
-        let metadata = symlink_metadata(&source_path)
-            .with_context(|| format!("failed to read {}", source_path.display()))?;
-        let is_dir = metadata.file_type().is_dir();
+        let is_dir = entry
+            .file_type()
+            .with_context(|| format!("failed to read {}", source_path.display()))?
+            .is_dir();
         let relative_path = if relative_dir.is_empty() {
             file_name.to_string()
         } else {
             format!("{relative_dir}/{file_name}")
         };
 
-        let ignore_key = if is_dir { format!("{relative_path}/") } else { relative_path.clone() };
-        let is_ignored = current_ignores.matches(&ignore_key);
+        let is_ignored = if is_dir {
+            current_ignores.matches(&format!("{relative_path}/"))
+        } else {
+            current_ignores.matches(&relative_path)
+        };
 
         if is_unconditional_symlink(file_name) {
             ignored_paths.push(PathBuf::from(&relative_path));

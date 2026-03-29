@@ -14,8 +14,9 @@ pub fn open_tab(workspace_path: &Path, command: Option<&str>) -> Result<Option<S
         None => cd,
     };
     let script = build_tab_script(workspace_path, &full_command);
-    let terminal_id = run_applescript_output(&script).context("failed to create Ghostty tab")?;
-    Ok(Some(terminal_id))
+    run_applescript_output(&script)
+        .context("failed to create Ghostty tab")
+        .map(Some)
 }
 
 fn is_available() -> bool {

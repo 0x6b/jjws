@@ -25,19 +25,27 @@ pub struct NewOptions {
     pub no_tab: bool,
 }
 
+fn open_tab_or_warn(path: &Path, command: Option<&str>) -> bool {
+    match open_tab(path, command) {
+        Ok(Some(_)) => true,
+        Ok(None) => false,
+        Err(err) => {
+            eprintln!("Warning: failed to open Ghostty tab: {err:#}");
+            false
+        }
+    }
+}
+
 pub fn new_workspace(options: NewOptions, workspace_root: Option<&Path>) -> Result<()> {
     let ctx = CommandContext::load(workspace_root)?;
-    let name = match options.name {
-        Some(name) => name,
-        None => {
-            let repo_view = ctx.current.repo.view();
-            generate(|candidate| {
-                repo_view
-                    .get_wc_commit_id(&WorkspaceNameBuf::from(candidate))
-                    .is_some()
-            })
-        }
-    };
+    let name = options.name.unwrap_or_else(|| {
+        let repo_view = ctx.current.repo.view();
+        generate(|candidate| {
+            repo_view
+                .get_wc_commit_id(&WorkspaceNameBuf::from(candidate))
+                .is_some()
+        })
+    });
     let repo_dir_name = ctx.repo_root.file_name().context("repo root has no directory name")?;
     let destination = ctx.workspace_root.join(repo_dir_name).join(&name);
     let workspace_name = WorkspaceNameBuf::from(name.as_str());
@@ -51,23 +59,20 @@ pub fn new_workspace(options: NewOptions, workspace_root: Option<&Path>) -> Resu
         ctx.current.workspace.workspace_name(),
     )?;
 
-    let tab_opened = !options.no_tab
-        && match open_tab(&destination, options.command.as_deref()) {
-            Ok(Some(_)) => true,
-            Ok(None) => false,
-            Err(err) => {
-                eprintln!("Warning: failed to open Ghostty tab: {err:#}");
-                false
-            }
-        };
+    let tab_opened = !options.no_tab && open_tab_or_warn(&destination, options.command.as_deref());
 
     println!("Created workspace at {}", destination.display());
     let noun = if symlinked == 1 { "path" } else { "paths" };
     println!("Symlinked {symlinked} jj-ignored {noun}");
-    match (tab_opened, options.no_tab) {
-        (true, _) => println!("Opened and focused a Ghostty tab"),
-        (false, false) => println!("Ghostty tab was not opened"),
-        _ => {}
+    if !options.no_tab {
+        println!(
+            "{}",
+            if tab_opened {
+                "Opened and focused a Ghostty tab"
+            } else {
+                "Ghostty tab was not opened"
+            }
+        );
     }
 
     Ok(())
@@ -115,13 +120,10 @@ pub fn cd(name: Option<&str>, workspace_root: Option<&Path>) -> Result<()> {
         None => ctx.repo_root.clone(),
     };
 
-    match open_tab(&path, None) {
-        Ok(Some(_)) => println!("Opened Ghostty tab at {}", path.display()),
-        Ok(None) => println!("{}", path.display()),
-        Err(err) => {
-            eprintln!("Warning: failed to open Ghostty tab: {err:#}");
-            println!("{}", path.display());
-        }
+    if open_tab_or_warn(&path, None) {
+        println!("Opened Ghostty tab at {}", path.display());
+    } else {
+        println!("{}", path.display());
     }
     Ok(())
 }

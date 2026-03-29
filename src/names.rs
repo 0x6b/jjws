@@ -1,6 +1,6 @@
 use std::time::SystemTime;
 
-static ADJECTIVES: &[&str] = &[
+const ADJECTIVES: &[&str] = &[
     "bold", "brave", "bright", "calm", "clever", "cool", "daring", "eager", "fair", "fierce",
     "fleet", "free", "gentle", "glad", "golden", "grand", "happy", "hardy", "keen", "kind",
     "lively", "lucky", "mellow", "merry", "mighty", "noble", "plucky", "proud", "quick", "quiet",
@@ -8,7 +8,7 @@ static ADJECTIVES: &[&str] = &[
     "stoic", "sunny", "swift", "tender", "tidy", "vivid", "warm", "wild", "witty", "zesty",
 ];
 
-static ANIMALS: &[&str] = &[
+const ANIMALS: &[&str] = &[
     "alpaca", "badger", "bear", "bison", "bobcat", "bunny", "caribou", "cat", "cobra", "condor",
     "corgi", "crane", "crow", "deer", "dingo", "eagle", "falcon", "ferret", "finch", "fox",
     "gecko", "goose", "hawk", "heron", "horse", "husky", "ibis", "impala", "jackal", "jaguar",
@@ -31,14 +31,13 @@ pub fn generate(exists: impl Fn(&str) -> bool) -> String {
         return base;
     }
 
-    let mut suffix = 2;
-    loop {
+    for suffix in 2.. {
         let candidate = format!("{base}{suffix}");
         if !exists(&candidate) {
             return candidate;
         }
-        suffix += 1;
     }
+    unreachable!()
 }
 
 #[cfg(test)]
