@@ -25,7 +25,6 @@ use jj_lib::{
     settings::UserSettings,
     workspace::{Workspace, default_working_copy_factories, default_working_copy_factory},
 };
-use pollster::FutureExt as _;
 
 pub(crate) struct LoadedWorkspace {
     pub(crate) workspace: Workspace,
@@ -156,7 +155,7 @@ impl Display for WorkspaceListEntry {
     }
 }
 
-pub(crate) fn load_workspace(start_dir: &Path) -> Result<LoadedWorkspace> {
+pub(crate) async fn load_workspace(start_dir: &Path) -> Result<LoadedWorkspace> {
     let workspace_root = find_workspace_root(start_dir)?;
     let settings = load_settings(workspace_root)?;
     let workspace = Workspace::load(
@@ -165,11 +164,11 @@ pub(crate) fn load_workspace(start_dir: &Path) -> Result<LoadedWorkspace> {
         &StoreFactories::default(),
         &default_working_copy_factories(),
     )?;
-    let repo = workspace.repo_loader().load_at_head().block_on()?;
+    let repo = workspace.repo_loader().load_at_head().await?;
     Ok(LoadedWorkspace { workspace, repo })
 }
 
-pub(crate) fn create_workspace(
+pub(crate) async fn create_workspace(
     current: &LoadedWorkspace,
     destination: &Path,
     workspace_name: WorkspaceNameBuf,
@@ -187,24 +186,25 @@ pub(crate) fn create_workspace(
         &*default_working_copy_factory(),
         workspace_name.clone(),
     )
-    .block_on()?;
+    .await?;
 
-    copy_sparse_patterns(&current.workspace, &mut new_workspace)?;
+    copy_sparse_patterns(&current.workspace, &mut new_workspace).await?;
 
     let (new_repo, wc_commit_id) = create_initial_workspace_commit(
         &repo_after_add,
         current.workspace.workspace_name(),
         workspace_name,
-    )?;
+    )
+    .await?;
     let new_wc_commit = new_repo.store().get_commit(&wc_commit_id)?;
     new_workspace
         .check_out(new_repo.op_id().clone(), None, &new_wc_commit)
-        .block_on()?;
+        .await?;
 
     Ok(())
 }
 
-pub(crate) fn forget_workspaces(
+pub(crate) async fn forget_workspaces(
     current: &LoadedWorkspace,
     target_names: &[WorkspaceNameBuf],
     cwd: &Path,
@@ -226,7 +226,7 @@ pub(crate) fn forget_workspaces(
         return Ok(Vec::new());
     }
 
-    let locator = WorkspaceLocator::new(current, repo_root, workspace_root);
+    let locator = WorkspaceLocator::new(current, repo_root, workspace_root).await;
     let planned: Vec<_> = known_targets
         .iter()
         .map(|&name| {
@@ -238,9 +238,9 @@ pub(crate) fn forget_workspaces(
 
     let mut tx = current.repo.start_transaction();
     for &name in &known_targets {
-        tx.repo_mut().remove_wc_commit(name).block_on()?;
+        tx.repo_mut().remove_wc_commit(name).await?;
     }
-    tx.repo_mut().rebase_descendants().block_on()?;
+    tx.repo_mut().rebase_descendants().await?;
 
     let description = match known_targets.as_slice() {
         [name] => format!("forget workspace {}", name.as_symbol()),
@@ -255,7 +255,7 @@ pub(crate) fn forget_workspaces(
             s
         }
     };
-    tx.commit(description).block_on()?;
+    tx.commit(description).await?;
 
     // Move cwd out before deleting
     if let Some((_, path, _)) = planned
@@ -390,13 +390,13 @@ fn collect_workspace_commits(repo: &ReadonlyRepo, wc_commit_id: &CommitId) -> Ve
     result
 }
 
-pub(crate) fn list_workspaces(
+pub(crate) async fn list_workspaces(
     current: &LoadedWorkspace,
     repo_root: &Path,
     workspace_root: &Path,
     include_commits: bool,
 ) -> Vec<WorkspaceListEntry> {
-    let locator = WorkspaceLocator::new(current, repo_root, workspace_root);
+    let locator = WorkspaceLocator::new(current, repo_root, workspace_root).await;
     let wc_commit_ids = current.repo.view().wc_commit_ids();
 
     let mut entries: Vec<_> = wc_commit_ids
@@ -437,7 +437,7 @@ pub(crate) fn list_workspaces(
     entries
 }
 
-pub(crate) fn locate_workspace(
+pub(crate) async fn locate_workspace(
     current: &LoadedWorkspace,
     name: &WorkspaceName,
     repo_root: &Path,
@@ -446,7 +446,7 @@ pub(crate) fn locate_workspace(
     if current.repo.view().get_wc_commit_id(name).is_none() {
         bail!("no such workspace: {}", name.as_symbol());
     }
-    let locator = WorkspaceLocator::new(current, repo_root, workspace_root);
+    let locator = WorkspaceLocator::new(current, repo_root, workspace_root).await;
     let path = locator.path(name);
     if !path.exists() {
         bail!(
@@ -466,7 +466,7 @@ pub(crate) fn repo_root_from_repo_path(repo_path: &Path) -> Result<PathBuf> {
         .context("repo path is missing its workspace root")
 }
 
-fn repo_host_workspace_name(
+async fn repo_host_workspace_name(
     current: &LoadedWorkspace,
     repo_root: &Path,
 ) -> Option<WorkspaceNameBuf> {
@@ -475,6 +475,7 @@ fn repo_host_workspace_name(
     }
 
     load_workspace(repo_root)
+        .await
         .ok()
         .map(|workspace| workspace.workspace.workspace_name().to_owned())
 }
@@ -487,12 +488,16 @@ struct WorkspaceLocator<'a> {
 }
 
 impl<'a> WorkspaceLocator<'a> {
-    fn new(current: &'a LoadedWorkspace, repo_root: &'a Path, workspace_root: &'a Path) -> Self {
+    async fn new(
+        current: &'a LoadedWorkspace,
+        repo_root: &'a Path,
+        workspace_root: &'a Path,
+    ) -> Self {
         Self {
             current,
             repo_root,
             workspace_root,
-            repo_host_name: repo_host_workspace_name(current, repo_root),
+            repo_host_name: repo_host_workspace_name(current, repo_root).await,
         }
     }
 
@@ -528,36 +533,36 @@ fn prepare_destination(destination: &Path) -> Result<()> {
     Ok(())
 }
 
-fn copy_sparse_patterns(current: &Workspace, new_workspace: &mut Workspace) -> Result<()> {
+async fn copy_sparse_patterns(current: &Workspace, new_workspace: &mut Workspace) -> Result<()> {
     let sparse_patterns = current.working_copy().sparse_patterns()?.to_vec();
     let mut locked_workspace = new_workspace.start_working_copy_mutation()?;
     locked_workspace
         .locked_wc()
         .set_sparse_patterns(sparse_patterns)
-        .block_on()?;
+        .await?;
     let operation_id = locked_workspace.locked_wc().old_operation_id().clone();
     locked_workspace.finish(operation_id)?;
     Ok(())
 }
 
-fn create_initial_workspace_commit(
+async fn create_initial_workspace_commit(
     repo: &Arc<ReadonlyRepo>,
     current_workspace_name: &WorkspaceName,
     new_workspace_name: WorkspaceNameBuf,
 ) -> Result<(Arc<ReadonlyRepo>, CommitId)> {
     let mut tx = repo.start_transaction();
     let parents = current_workspace_parents(tx.base_repo(), current_workspace_name)?;
-    let tree = merge_commit_trees(tx.repo(), &parents).block_on()?;
+    let tree = merge_commit_trees(tx.repo(), &parents).await?;
     let parent_ids = parents.iter().map(|c| c.id().clone()).collect();
-    let new_wc_commit = tx.repo_mut().new_commit(parent_ids, tree).write().block_on()?;
+    let new_wc_commit = tx.repo_mut().new_commit(parent_ids, tree).write().await?;
     let description = format!(
         "create initial working-copy commit in workspace {}",
         new_workspace_name.as_symbol()
     );
-    tx.repo_mut().edit(new_workspace_name, &new_wc_commit).block_on()?;
-    tx.repo_mut().rebase_descendants().block_on()?;
+    tx.repo_mut().edit(new_workspace_name, &new_wc_commit).await?;
+    tx.repo_mut().rebase_descendants().await?;
     let commit_id = new_wc_commit.id().clone();
-    let new_repo = tx.commit(description).block_on()?;
+    let new_repo = tx.commit(description).await?;
     Ok((new_repo, commit_id))
 }
 
@@ -671,14 +676,14 @@ mod tests {
         UserSettings::from_config(StackedConfig::with_defaults()).unwrap()
     }
 
-    #[test]
-    fn create_workspace_reuses_current_workspace_parents() -> Result<()> {
+    #[tokio::test]
+    async fn create_workspace_reuses_current_workspace_parents() -> Result<()> {
         let temp_dir = TempDir::new()?;
         let source_root = temp_dir.path().join("source");
         create_dir_all(&source_root)?;
 
         let settings = test_settings();
-        let (mut workspace, repo) = Workspace::init_simple(&settings, &source_root).block_on()?;
+        let (mut workspace, repo) = Workspace::init_simple(&settings, &source_root).await?;
 
         let mut tx = repo.start_transaction();
         let parent_commit = tx
@@ -689,23 +694,24 @@ mod tests {
             )
             .set_description("base")
             .write()
-            .block_on()?;
+            .await?;
         let current_wc_commit = tx
             .repo_mut()
             .check_out(workspace.workspace_name().to_owned(), &parent_commit)
-            .block_on()?;
-        tx.repo_mut().rebase_descendants().block_on()?;
-        let repo = tx.commit("set up workspace").block_on()?;
+            .await?;
+        tx.repo_mut().rebase_descendants().await?;
+        let repo = tx.commit("set up workspace").await?;
         let current_wc_commit = repo.store().get_commit(current_wc_commit.id())?;
         workspace
             .check_out(repo.op_id().clone(), None, &current_wc_commit)
-            .block_on()?;
+            .await?;
 
         let loaded = LoadedWorkspace { workspace, repo };
         let destination = temp_dir.path().join("secondary");
-        create_workspace(&loaded, &destination, ref_name::WorkspaceNameBuf::from("secondary"))?;
+        create_workspace(&loaded, &destination, ref_name::WorkspaceNameBuf::from("secondary"))
+            .await?;
 
-        let secondary = load_workspace(&destination)?;
+        let secondary = load_workspace(&destination).await?;
         let wc_commit_id = secondary
             .repo
             .view()
@@ -716,8 +722,8 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn forget_workspace_removes_linked_workspace_directory() -> Result<()> {
+    #[tokio::test]
+    async fn forget_workspace_removes_linked_workspace_directory() -> Result<()> {
         let temp_dir = TempDir::new()?;
         let source_root = temp_dir.path().join("source");
         let parent_dir = temp_dir.path().join("workspaces");
@@ -726,18 +732,19 @@ mod tests {
         create_dir_all(&parent_dir)?;
 
         let settings = test_settings();
-        let (workspace, repo) = Workspace::init_simple(&settings, &source_root).block_on()?;
+        let (workspace, repo) = Workspace::init_simple(&settings, &source_root).await?;
         let loaded = LoadedWorkspace { workspace, repo };
-        create_workspace(&loaded, &secondary_root, WorkspaceNameBuf::from("secondary"))?;
+        create_workspace(&loaded, &secondary_root, WorkspaceNameBuf::from("secondary")).await?;
 
-        let secondary = load_workspace(&secondary_root)?;
+        let secondary = load_workspace(&secondary_root).await?;
         let results = forget_workspaces(
             &secondary,
             &[WorkspaceNameBuf::from("secondary")],
             temp_dir.path(),
             &source_root,
             &parent_dir,
-        )?;
+        )
+        .await?;
         assert_eq!(results.len(), 1);
         assert!(!secondary_root.exists());
         assert!(
@@ -748,7 +755,7 @@ mod tests {
                 .is_some()
         );
 
-        let default_loaded = load_workspace(&source_root)?;
+        let default_loaded = load_workspace(&source_root).await?;
         assert!(
             default_loaded
                 .repo
@@ -759,8 +766,8 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn forget_repo_host_keeps_directory() -> Result<()> {
+    #[tokio::test]
+    async fn forget_repo_host_keeps_directory() -> Result<()> {
         let temp_dir = TempDir::new()?;
         let source_root = temp_dir.path().join("source");
         let parent_dir = temp_dir.path().join("workspaces");
@@ -768,7 +775,7 @@ mod tests {
         create_dir_all(&parent_dir)?;
 
         let settings = test_settings();
-        let (workspace, repo) = Workspace::init_simple(&settings, &source_root).block_on()?;
+        let (workspace, repo) = Workspace::init_simple(&settings, &source_root).await?;
         let loaded = LoadedWorkspace { workspace, repo };
 
         let results = forget_workspaces(
@@ -777,7 +784,8 @@ mod tests {
             temp_dir.path(),
             &source_root,
             &parent_dir,
-        )?;
+        )
+        .await?;
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].deletion, ForgetDeletion::KeptRepoHost);
         assert!(source_root.exists());

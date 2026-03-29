@@ -51,16 +51,17 @@ enum Command {
     },
 }
 
-fn main() -> Result<()> {
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<()> {
     let cli = Cli::parse();
     let ws_root = cli.workspace_root.as_deref();
 
     match cli.command.unwrap_or(Command::List { porcelain: false }) {
         Command::New { name, command, no_tab } => {
-            new_workspace(NewOptions { name, command, no_tab }, ws_root)
+            new_workspace(NewOptions { name, command, no_tab }, ws_root).await
         }
-        Command::Forget { workspaces } => forget(workspaces, ws_root),
-        Command::List { porcelain } => list(porcelain, ws_root),
-        Command::Cd { name } => cd(name.as_deref(), ws_root),
+        Command::Forget { workspaces } => forget(workspaces, ws_root).await,
+        Command::List { porcelain } => list(porcelain, ws_root).await,
+        Command::Cd { name } => cd(name.as_deref(), ws_root).await,
     }
 }

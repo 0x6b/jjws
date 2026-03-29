@@ -36,8 +36,8 @@ fn open_tab_or_warn(path: &Path, command: Option<&str>) -> bool {
     }
 }
 
-pub fn new_workspace(options: NewOptions, workspace_root: Option<&Path>) -> Result<()> {
-    let ctx = CommandContext::load(workspace_root)?;
+pub async fn new_workspace(options: NewOptions, workspace_root: Option<&Path>) -> Result<()> {
+    let ctx = CommandContext::load(workspace_root).await?;
     let name = options.name.unwrap_or_else(|| {
         let repo_view = ctx.current.repo.view();
         generate(|candidate| {
@@ -50,7 +50,7 @@ pub fn new_workspace(options: NewOptions, workspace_root: Option<&Path>) -> Resu
     let destination = ctx.workspace_root.join(repo_dir_name).join(&name);
     let workspace_name = WorkspaceNameBuf::from(name.as_str());
 
-    create_workspace(&ctx.current, &destination, workspace_name)?;
+    create_workspace(&ctx.current, &destination, workspace_name).await?;
 
     let symlinked = symlink_ignored_paths(
         ctx.current.workspace.workspace_root(),
@@ -78,8 +78,8 @@ pub fn new_workspace(options: NewOptions, workspace_root: Option<&Path>) -> Resu
     Ok(())
 }
 
-pub fn forget(workspaces: Vec<String>, workspace_root: Option<&Path>) -> Result<()> {
-    let ctx = CommandContext::load(workspace_root)?;
+pub async fn forget(workspaces: Vec<String>, workspace_root: Option<&Path>) -> Result<()> {
+    let ctx = CommandContext::load(workspace_root).await?;
     if ctx.current.workspace.workspace_root() != ctx.repo_root {
         bail!("forget must be run from the repo-host workspace ({})", ctx.repo_root.display());
     }
@@ -93,7 +93,8 @@ pub fn forget(workspaces: Vec<String>, workspace_root: Option<&Path>) -> Result<
         &ctx.cwd,
         &ctx.repo_root,
         &ctx.workspace_root,
-    )?;
+    )
+    .await?;
 
     if results.is_empty() {
         println!("Nothing changed.");
@@ -110,12 +111,13 @@ pub fn forget(workspaces: Vec<String>, workspace_root: Option<&Path>) -> Result<
     Ok(())
 }
 
-pub fn cd(name: Option<&str>, workspace_root: Option<&Path>) -> Result<()> {
-    let ctx = CommandContext::load(workspace_root)?;
+pub async fn cd(name: Option<&str>, workspace_root: Option<&Path>) -> Result<()> {
+    let ctx = CommandContext::load(workspace_root).await?;
     let path = match name {
         Some(name) => {
             let workspace_name = WorkspaceNameBuf::from(name);
-            locate_workspace(&ctx.current, &workspace_name, &ctx.repo_root, &ctx.workspace_root)?
+            locate_workspace(&ctx.current, &workspace_name, &ctx.repo_root, &ctx.workspace_root)
+                .await?
         }
         None => ctx.repo_root.clone(),
     };
@@ -128,11 +130,13 @@ pub fn cd(name: Option<&str>, workspace_root: Option<&Path>) -> Result<()> {
     Ok(())
 }
 
-pub fn list(porcelain: bool, workspace_root: Option<&Path>) -> Result<()> {
-    let ctx = CommandContext::load(workspace_root)?;
+pub async fn list(porcelain: bool, workspace_root: Option<&Path>) -> Result<()> {
+    let ctx = CommandContext::load(workspace_root).await?;
     let include_commits = !porcelain;
 
-    for ws in list_workspaces(&ctx.current, &ctx.repo_root, &ctx.workspace_root, include_commits) {
+    for ws in
+        list_workspaces(&ctx.current, &ctx.repo_root, &ctx.workspace_root, include_commits).await
+    {
         if porcelain {
             println!("{ws}");
         } else {
@@ -151,9 +155,9 @@ struct CommandContext {
 }
 
 impl CommandContext {
-    fn load(workspace_root: Option<&Path>) -> Result<Self> {
+    async fn load(workspace_root: Option<&Path>) -> Result<Self> {
         let cwd = current_dir().context("failed to determine current directory")?;
-        let current = load_workspace(&cwd)?;
+        let current = load_workspace(&cwd).await?;
         let repo_root = repo_root_from_repo_path(current.workspace.repo_path())?;
         let workspace_root = resolve_workspace_root(&cwd, workspace_root)?;
         Ok(Self { cwd, current, repo_root, workspace_root })
