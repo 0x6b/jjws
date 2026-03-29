@@ -9,6 +9,7 @@ use std::{
 };
 
 use anyhow::{Context, Result, bail};
+use dirs::data_dir;
 use ghostty::open_tab;
 use ignored::symlink_ignored_paths;
 use jj::{
@@ -16,6 +17,7 @@ use jj::{
     load_workspace, locate_workspace, repo_root_from_repo_path,
 };
 use jj_lib::ref_name::WorkspaceNameBuf;
+use names::generate;
 
 pub struct NewOptions {
     pub name: Option<String>,
@@ -29,17 +31,14 @@ pub fn new_workspace(options: NewOptions, workspace_root: Option<&Path>) -> Resu
         Some(name) => name,
         None => {
             let repo_view = ctx.current.repo.view();
-            names::generate(|candidate| {
+            generate(|candidate| {
                 repo_view
                     .get_wc_commit_id(&WorkspaceNameBuf::from(candidate))
                     .is_some()
             })
         }
     };
-    let repo_dir_name = ctx
-        .repo_root
-        .file_name()
-        .context("repo root has no directory name")?;
+    let repo_dir_name = ctx.repo_root.file_name().context("repo root has no directory name")?;
     let destination = ctx.workspace_root.join(repo_dir_name).join(&name);
     let workspace_name = WorkspaceNameBuf::from(name.as_str());
 
@@ -77,17 +76,19 @@ pub fn new_workspace(options: NewOptions, workspace_root: Option<&Path>) -> Resu
 pub fn forget(workspaces: Vec<String>, workspace_root: Option<&Path>) -> Result<()> {
     let ctx = CommandContext::load(workspace_root)?;
     if ctx.current.workspace.workspace_root() != ctx.repo_root {
-        bail!(
-            "forget must be run from the repo-host workspace ({})",
-            ctx.repo_root.display()
-        );
+        bail!("forget must be run from the repo-host workspace ({})", ctx.repo_root.display());
     }
     let target_names: Vec<WorkspaceNameBuf> = workspaces
         .iter()
         .map(|name| WorkspaceNameBuf::from(name.as_str()))
         .collect();
-    let results =
-        forget_workspaces(&ctx.current, &target_names, &ctx.cwd, &ctx.repo_root, &ctx.workspace_root)?;
+    let results = forget_workspaces(
+        &ctx.current,
+        &target_names,
+        &ctx.cwd,
+        &ctx.repo_root,
+        &ctx.workspace_root,
+    )?;
 
     if results.is_empty() {
         println!("Nothing changed.");
@@ -155,7 +156,6 @@ impl CommandContext {
         let workspace_root = resolve_workspace_root(&cwd, workspace_root)?;
         Ok(Self { cwd, current, repo_root, workspace_root })
     }
-
 }
 
 fn resolve_workspace_root(cwd: &Path, configured: Option<&Path>) -> Result<PathBuf> {
@@ -163,7 +163,7 @@ fn resolve_workspace_root(cwd: &Path, configured: Option<&Path>) -> Result<PathB
         return Ok(if root.is_absolute() { root.to_path_buf() } else { cwd.join(root) });
     }
 
-    dirs::data_dir()
+    data_dir()
         .map(|d| d.join("jjws"))
         .context("failed to determine data directory")
 }

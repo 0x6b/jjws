@@ -12,6 +12,7 @@ use colored::Colorize;
 use dirs::{config_dir, home_dir};
 use dunce::canonicalize;
 use gethostname::gethostname;
+use jiff::Zoned;
 use jj_lib::{
     backend::CommitId,
     commit::Commit,
@@ -20,7 +21,7 @@ use jj_lib::{
     object_id::ObjectId as _,
     ref_name::{WorkspaceName, WorkspaceNameBuf},
     repo::{ReadonlyRepo, Repo as _, StoreFactories},
-    revset::ResolvedExpression,
+    revset::{ResolvedExpression, ResolvedExpression::DagRange},
     rewrite::merge_commit_trees,
     settings::UserSettings,
     workspace::{Workspace, default_working_copy_factories, default_working_copy_factory},
@@ -47,8 +48,8 @@ pub(crate) struct WorkspaceListEntry {
     pub(crate) exists_on_disk: bool,
     pub(crate) is_current: bool,
     pub(crate) is_repo_host: bool,
-    pub(crate) created: Option<jiff::Zoned>,
-    pub(crate) modified: Option<jiff::Zoned>,
+    pub(crate) created: Option<Zoned>,
+    pub(crate) modified: Option<Zoned>,
     pub(crate) commits: Vec<CommitInfo>,
 }
 
@@ -97,15 +98,13 @@ impl Display for WorkspaceListEntry {
         } else {
             ""
         };
-        let fmt_time = |t: &jiff::Zoned| t.strftime("%Y-%m-%d %H:%M:%S").to_string();
+        let fmt_time = |t: &Zoned| t.strftime("%Y-%m-%d %H:%M:%S").to_string();
         let created = self.created.as_ref().map(fmt_time).unwrap_or_default();
         let modified = self.modified.as_ref().map(fmt_time).unwrap_or_default();
         write!(
             f,
-            "{marker} {}\t{}\t{}\t{}{suffix}",
+            "{marker} {}\t{created}\t{modified}\t{}{suffix}",
             self.name.as_symbol(),
-            created,
-            modified,
             self.path.display()
         )
     }
@@ -113,17 +112,9 @@ impl Display for WorkspaceListEntry {
 
 impl WorkspaceListEntry {
     pub(crate) fn print_colored(&self) {
-        let marker = if self.is_current {
-            "*".green().bold()
-        } else {
-            " ".normal()
-        };
+        let marker = if self.is_current { "*".green().bold() } else { " ".normal() };
         let name_str = self.name.as_str();
-        let name = if self.is_current {
-            name_str.green().bold()
-        } else {
-            name_str.bold()
-        };
+        let name = if self.is_current { name_str.green().bold() } else { name_str.bold() };
         let suffix = if self.is_repo_host {
             " [repo-host]".bright_cyan()
         } else if !self.exists_on_disk {
@@ -131,29 +122,17 @@ impl WorkspaceListEntry {
         } else {
             "".normal()
         };
-        let fmt_time = |t: &jiff::Zoned| t.strftime("%Y-%m-%d %H:%M:%S").to_string();
-        let created = self
-            .created
-            .as_ref()
-            .map(fmt_time)
-            .unwrap_or_default()
-            .dimmed();
-        let modified = self
-            .modified
-            .as_ref()
-            .map(fmt_time)
-            .unwrap_or_default()
-            .dimmed();
+        let fmt_time = |t: &Zoned| t.strftime("%Y-%m-%d %H:%M:%S").to_string();
+        let created = self.created.as_ref().map(fmt_time).unwrap_or_default().dimmed();
+        let modified = self.modified.as_ref().map(fmt_time).unwrap_or_default().dimmed();
         let path = self.path.display().to_string().dimmed();
         println!("{marker} {name}\t{created}\t{modified}\t{path}{suffix}");
 
         for c in &self.commits {
-            let (change_prefix, change_rest) = c.change_id.split_at(
-                c.change_id_prefix_len.min(c.change_id.len()),
-            );
-            let (commit_prefix, commit_rest) = c.commit_id.split_at(
-                c.commit_id_prefix_len.min(c.commit_id.len()),
-            );
+            let (change_prefix, change_rest) =
+                c.change_id.split_at(c.change_id_prefix_len.min(c.change_id.len()));
+            let (commit_prefix, commit_rest) =
+                c.commit_id.split_at(c.commit_id_prefix_len.min(c.commit_id.len()));
             let empty_marker = if c.is_empty { " (empty)".green() } else { "".normal() };
             let desc = if c.description == "(no description set)" {
                 c.description.as_str().yellow()
@@ -299,16 +278,12 @@ fn has_multiple_children(
     commit_id: &CommitId,
     visible_heads: &[CommitId],
 ) -> bool {
-    let expr = ResolvedExpression::DagRange {
+    let expr = DagRange {
         roots: Box::new(ResolvedExpression::Commits(vec![commit_id.clone()])),
         heads: Box::new(ResolvedExpression::Commits(visible_heads.to_vec())),
         generation_from_roots: 1..2,
     };
-    let Ok(revset) = repo
-        .readonly_index()
-        .as_index()
-        .evaluate_revset(&expr, repo.store())
-    else {
+    let Ok(revset) = repo.readonly_index().as_index().evaluate_revset(&expr, repo.store()) else {
         return false;
     };
     revset.iter().take(2).flatten().count() > 1
@@ -348,11 +323,11 @@ fn collect_workspace_commits(repo: &ReadonlyRepo, wc_commit_id: &CommitId) -> Ve
         // Skip empty (no-change) commits
         if is_empty {
             let parent_ids = commit.parent_ids();
-            if parent_ids.len() == 1 {
-                if let Ok(parent) = repo.store().get_commit(&parent_ids[0]) {
-                    commit = parent;
-                    continue;
-                }
+            if parent_ids.len() == 1
+                && let Ok(parent) = repo.store().get_commit(&parent_ids[0])
+            {
+                commit = parent;
+                continue;
             }
             break;
         }
@@ -419,11 +394,11 @@ pub(crate) fn list_workspaces(
             let created = meta
                 .as_ref()
                 .and_then(|m| m.created().ok())
-                .and_then(|t| jiff::Zoned::try_from(t).ok());
+                .and_then(|t| Zoned::try_from(t).ok());
             let modified = meta
                 .as_ref()
                 .and_then(|m| m.modified().ok())
-                .and_then(|t| jiff::Zoned::try_from(t).ok());
+                .and_then(|t| Zoned::try_from(t).ok());
             let commits = if include_commits {
                 wc_commit_ids
                     .get(name)

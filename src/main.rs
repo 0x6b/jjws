@@ -56,18 +56,9 @@ fn main() -> Result<()> {
     let ws_root = cli.workspace_root.as_deref();
 
     match cli.command {
-        Command::New {
-            name,
-            command,
-            no_tab,
-        } => new_workspace(
-            NewOptions {
-                name,
-                command,
-                no_tab,
-            },
-            ws_root,
-        ),
+        Command::New { name, command, no_tab } => {
+            new_workspace(NewOptions { name, command, no_tab }, ws_root)
+        }
         Command::Forget { workspaces } => forget(workspaces, ws_root),
         Command::List { porcelain } => list(porcelain, ws_root),
         Command::Cd { name } => cd(name.as_deref(), ws_root),

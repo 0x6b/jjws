@@ -57,9 +57,10 @@ fn collect_tracked_paths(
     };
 
     let commit = repo.store().get_commit(wc_commit_id)?;
-    commit.tree().entries().try_fold(
-        TrackedPaths::default(),
-        |mut acc, (path, value)| {
+    commit
+        .tree()
+        .entries()
+        .try_fold(TrackedPaths::default(), |mut acc, (path, value)| {
             let value = value?;
             if value.is_present() && !value.is_tree() {
                 let path = path.as_internal_file_string().to_string();
@@ -67,13 +68,13 @@ fn collect_tracked_paths(
                 acc.tracked_paths.insert(path);
             }
             Ok(acc)
-        },
-    )
+        })
 }
 
 fn add_parent_directories(path: &str, tracked_dirs: &mut HashSet<String>) {
-    path.match_indices('/')
-        .for_each(|(i, _)| { tracked_dirs.insert(path[..i].to_string()); });
+    path.match_indices('/').for_each(|(i, _)| {
+        tracked_dirs.insert(path[..i].to_string());
+    });
 }
 
 fn load_base_ignores(repo: &Arc<ReadonlyRepo>) -> Result<Arc<GitIgnoreFile>> {
@@ -301,8 +302,7 @@ mod tests {
             tracked_paths: collections::HashSet::from(["CLAUDE.md".into()]),
             tracked_dirs: collections::HashSet::new(),
         };
-        let paths =
-            collect_ignored_paths(root, &tracked, &gitignore::GitIgnoreFile::empty())?;
+        let paths = collect_ignored_paths(root, &tracked, &gitignore::GitIgnoreFile::empty())?;
 
         assert!(paths.contains(&PathBuf::from("CLAUDE.md")));
         assert!(paths.contains(&PathBuf::from(".mcp.json")));

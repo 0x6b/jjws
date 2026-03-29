@@ -1,30 +1,20 @@
 use std::time::SystemTime;
 
 static ADJECTIVES: &[&str] = &[
-    "bold", "brave", "bright", "calm", "clever",
-    "cool", "daring", "eager", "fair", "fierce",
-    "fleet", "free", "gentle", "glad", "golden",
-    "grand", "happy", "hardy", "keen", "kind",
-    "lively", "lucky", "mellow", "merry", "mighty",
-    "noble", "plucky", "proud", "quick", "quiet",
-    "rapid", "ready", "sharp", "sleek", "sleepy",
-    "smooth", "snappy", "snowy", "spry", "steady",
-    "stoic", "sunny", "swift", "tender", "tidy",
-    "vivid", "warm", "wild", "witty", "zesty",
+    "bold", "brave", "bright", "calm", "clever", "cool", "daring", "eager", "fair", "fierce",
+    "fleet", "free", "gentle", "glad", "golden", "grand", "happy", "hardy", "keen", "kind",
+    "lively", "lucky", "mellow", "merry", "mighty", "noble", "plucky", "proud", "quick", "quiet",
+    "rapid", "ready", "sharp", "sleek", "sleepy", "smooth", "snappy", "snowy", "spry", "steady",
+    "stoic", "sunny", "swift", "tender", "tidy", "vivid", "warm", "wild", "witty", "zesty",
 ];
 
 static ANIMALS: &[&str] = &[
-    "alpaca", "badger", "bear", "bison", "bobcat",
-    "bunny", "caribou", "cat", "cobra", "condor",
-    "corgi", "crane", "crow", "deer", "dingo",
-    "eagle", "falcon", "ferret", "finch", "fox",
-    "gecko", "goose", "hawk", "heron", "horse",
-    "husky", "ibis", "impala", "jackal", "jaguar",
-    "koala", "lemur", "lion", "llama", "lynx",
-    "moose", "newt", "okapi", "otter", "owl",
-    "panda", "parrot", "puma", "quail", "raven",
-    "robin", "salmon", "seal", "stork", "swan",
-    "tiger", "toad", "viper", "whale", "wolf",
+    "alpaca", "badger", "bear", "bison", "bobcat", "bunny", "caribou", "cat", "cobra", "condor",
+    "corgi", "crane", "crow", "deer", "dingo", "eagle", "falcon", "ferret", "finch", "fox",
+    "gecko", "goose", "hawk", "heron", "horse", "husky", "ibis", "impala", "jackal", "jaguar",
+    "koala", "lemur", "lion", "llama", "lynx", "moose", "newt", "okapi", "otter", "owl", "panda",
+    "parrot", "puma", "quail", "raven", "robin", "salmon", "seal", "stork", "swan", "tiger",
+    "toad", "viper", "whale", "wolf",
 ];
 
 pub fn generate(exists: impl Fn(&str) -> bool) -> String {
