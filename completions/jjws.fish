@@ -1,8 +1,46 @@
 # Fish completions for jjws
 
-# Helper: extract workspace names from `jjws list` output
+# Helper: extract workspace names with descriptions from `jjws list --porcelain`
+# Porcelain format: "{marker} {name}\t{created}\t{modified}\t{path}{suffix}"
 function __jjws_workspaces
-    jjws list --porcelain 2>/dev/null | string replace -r '^[* ] ([^\t]+)\t.*' '$1'
+    jjws list --porcelain 2>/dev/null | while read -l line
+        set -l marker (string sub -l 1 -- $line)
+        set -l rest (string sub -s 3 -- $line)
+        set -l fields (string split \t -- $rest)
+        set -l name $fields[1]
+        set -l created $fields[2]
+        set -l modified $fields[3]
+        set -l path_with_suffix $fields[4]
+
+        set -l desc
+        if string match -q '* \[repo-host\]' -- $path_with_suffix
+            set desc "[repo-host]"
+        else if string match -q '* \[out-of-control\]' -- $path_with_suffix
+            set desc "[out-of-control]"
+        end
+
+        if test -n "$modified"
+            if test -n "$desc"
+                set desc "$desc modified $modified"
+            else
+                set desc "modified $modified"
+            end
+        end
+
+        if test "$marker" = '*'
+            if test -n "$desc"
+                set desc "current, $desc"
+            else
+                set desc "current"
+            end
+        end
+
+        if test -n "$desc"
+            printf '%s\t%s\n' $name $desc
+        else
+            echo $name
+        end
+    end
 end
 
 # Disable file completions by default
@@ -25,10 +63,10 @@ complete -c jjws -n '__fish_seen_subcommand_from new' -l name -r -d 'Workspace n
 complete -c jjws -n '__fish_seen_subcommand_from new' -l no-tab -d 'Skip opening a Ghostty tab'
 
 # cd: complete workspace names
-complete -c jjws -n '__fish_seen_subcommand_from cd' -a '(__jjws_workspaces)' -d 'Workspace name'
+complete -c jjws -n '__fish_seen_subcommand_from cd' -a '(__jjws_workspaces)'
 
 # forget: complete workspace names
-complete -c jjws -n '__fish_seen_subcommand_from forget' -a '(__jjws_workspaces)' -d 'Workspace name'
+complete -c jjws -n '__fish_seen_subcommand_from forget' -a '(__jjws_workspaces)'
 
 # list: --porcelain flag
 complete -c jjws -n '__fish_seen_subcommand_from list' -l porcelain -d 'Machine-readable output (no commit details)'
