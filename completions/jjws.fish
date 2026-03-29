@@ -62,8 +62,8 @@ complete -c jjws -n __fish_use_subcommand -a help -d 'Print help for a subcomman
 complete -c jjws -n '__fish_seen_subcommand_from new' -l name -r -d 'Workspace name (auto-generated if omitted)'
 complete -c jjws -n '__fish_seen_subcommand_from new' -l no-tab -d 'Skip opening a Ghostty tab'
 
-# cd: complete workspace names
-complete -c jjws -n '__fish_seen_subcommand_from cd' -a '(__jjws_workspaces)'
+# cd: complete workspace names (exclude "default" — no argument means default)
+complete -c jjws -n '__fish_seen_subcommand_from cd' -a '(__jjws_workspaces | string match -rv "^default(\t|\$)")'
 
 # forget: complete workspace names (exclude "default" — forgetting it makes no sense)
 complete -c jjws -n '__fish_seen_subcommand_from forget' -a '(__jjws_workspaces | string match -rv "^default(\t|\$)")'
