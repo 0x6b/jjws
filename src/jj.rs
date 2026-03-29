@@ -364,6 +364,10 @@ fn collect_workspace_commits(repo: &ReadonlyRepo, wc_commit_id: &CommitId) -> Ve
 
         let is_fork = has_multiple_children(repo, commit.id(), &visible_heads);
 
+        if is_fork {
+            break;
+        }
+
         result.push(CommitInfo {
             change_id: shorten_id(&change_hex, ID_DISPLAY_LEN.max(change_len)),
             change_id_prefix_len: change_len,
@@ -373,7 +377,7 @@ fn collect_workspace_commits(repo: &ReadonlyRepo, wc_commit_id: &CommitId) -> Ve
             is_empty,
         });
 
-        if is_fork || result.len() >= MAX_COMMITS_PER_WORKSPACE {
+        if result.len() >= MAX_COMMITS_PER_WORKSPACE {
             break;
         }
 
