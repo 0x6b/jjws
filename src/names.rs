@@ -21,10 +21,16 @@ pub fn generate(exists: impl Fn(&str) -> bool) -> String {
     let nanos = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap_or_default()
-        .subsec_nanos() as usize;
+        .subsec_nanos() as u64;
 
-    let adj = ADJECTIVES[nanos % ADJECTIVES.len()];
-    let animal = ANIMALS[(nanos / ADJECTIVES.len()) % ANIMALS.len()];
+    // xorshift to spread clustered nanosecond values
+    let mut seed = nanos;
+    seed ^= seed << 13;
+    seed ^= seed >> 7;
+    seed ^= seed << 17;
+
+    let adj = ADJECTIVES[(seed as usize) % ADJECTIVES.len()];
+    let animal = ANIMALS[((seed >> 16) as usize) % ANIMALS.len()];
     let base = format!("{adj}-{animal}");
 
     if !exists(&base) {
