@@ -323,7 +323,10 @@ fn shorten_id(hex: &str, display_len: usize) -> String {
     hex[..len].to_string()
 }
 
-fn collect_workspace_commits(repo: &ReadonlyRepo, wc_commit_id: &CommitId) -> Vec<CommitInfo> {
+async fn collect_workspace_commits(
+    repo: &ReadonlyRepo,
+    wc_commit_id: &CommitId,
+) -> Vec<CommitInfo> {
     let mut result = Vec::new();
     let Ok(mut commit) = repo.store().get_commit(wc_commit_id) else {
         return result;
@@ -331,7 +334,7 @@ fn collect_workspace_commits(repo: &ReadonlyRepo, wc_commit_id: &CommitId) -> Ve
     let visible_heads: Vec<CommitId> = repo.view().heads().iter().cloned().collect();
 
     loop {
-        let is_empty = commit.is_empty(repo).unwrap_or(false);
+        let is_empty = commit.is_empty(repo).await.unwrap_or(false);
 
         // Skip empty (no-change) commits
         if is_empty {
@@ -403,40 +406,38 @@ pub(crate) async fn list_workspaces(
     let locator = WorkspaceLocator::new(current, repo_root, workspace_root).await;
     let wc_commit_ids = current.repo.view().wc_commit_ids();
 
-    let mut entries: Vec<_> = wc_commit_ids
-        .keys()
-        .map(|name| {
-            let path = locator.path(name);
-            let meta = path.metadata().ok();
-            let created = meta
-                .as_ref()
-                .and_then(|m| m.created().ok())
-                .and_then(|t| Zoned::try_from(t).ok());
-            let modified = meta
-                .as_ref()
-                .and_then(|m| m.modified().ok())
-                .and_then(|t| Zoned::try_from(t).ok());
-            let is_repo_host = locator.is_repo_host(name);
-            let commits = if include_commits && !is_repo_host {
-                wc_commit_ids
-                    .get(name)
-                    .map(|id| collect_workspace_commits(&current.repo, id))
-                    .unwrap_or_default()
-            } else {
-                vec![]
-            };
-            WorkspaceListEntry {
-                name: name.clone(),
-                exists_on_disk: path.exists(),
-                is_current: name == current.workspace.workspace_name(),
-                is_repo_host,
-                created,
-                modified,
-                path,
-                commits,
+    let mut entries = Vec::with_capacity(wc_commit_ids.len());
+    for name in wc_commit_ids.keys() {
+        let path = locator.path(name);
+        let meta = path.metadata().ok();
+        let created = meta
+            .as_ref()
+            .and_then(|m| m.created().ok())
+            .and_then(|t| Zoned::try_from(t).ok());
+        let modified = meta
+            .as_ref()
+            .and_then(|m| m.modified().ok())
+            .and_then(|t| Zoned::try_from(t).ok());
+        let is_repo_host = locator.is_repo_host(name);
+        let commits = if include_commits && !is_repo_host {
+            match wc_commit_ids.get(name) {
+                Some(id) => collect_workspace_commits(&current.repo, id).await,
+                None => vec![],
             }
-        })
-        .collect();
+        } else {
+            vec![]
+        };
+        entries.push(WorkspaceListEntry {
+            name: name.clone(),
+            exists_on_disk: path.exists(),
+            is_current: name == current.workspace.workspace_name(),
+            is_repo_host,
+            created,
+            modified,
+            path,
+            commits,
+        });
+    }
     entries.sort_by(|a, b| a.created.cmp(&b.created));
     entries
 }
@@ -545,7 +546,7 @@ async fn copy_sparse_patterns(current: &Workspace, new_workspace: &mut Workspace
         .set_sparse_patterns(sparse_patterns)
         .await?;
     let operation_id = locked_workspace.locked_wc().old_operation_id().clone();
-    locked_workspace.finish(operation_id)?;
+    locked_workspace.finish(operation_id).await?;
     Ok(())
 }
 
