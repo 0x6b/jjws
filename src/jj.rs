@@ -10,6 +10,7 @@ use anyhow::{Context, Result, bail};
 use colored::Colorize;
 use dirs::{config_dir, home_dir};
 use dunce::canonicalize;
+use futures::{StreamExt as _, executor::block_on};
 use gethostname::gethostname;
 use jiff::Zoned;
 use jj_lib::{
@@ -299,7 +300,8 @@ fn has_multiple_children(
     let Ok(revset) = repo.readonly_index().as_index().evaluate_revset(&expr, repo.store()) else {
         return false;
     };
-    revset.iter().take(2).flatten().count() > 1
+    let count = block_on(revset.stream().take(2).filter_map(|r| async move { r.ok() }).count());
+    count > 1
 }
 
 const ID_DISPLAY_LEN: usize = 8;
@@ -540,7 +542,7 @@ fn prepare_destination(destination: &Path) -> Result<()> {
 
 async fn copy_sparse_patterns(current: &Workspace, new_workspace: &mut Workspace) -> Result<()> {
     let sparse_patterns = current.working_copy().sparse_patterns()?.to_vec();
-    let mut locked_workspace = new_workspace.start_working_copy_mutation()?;
+    let mut locked_workspace = new_workspace.start_working_copy_mutation().await?;
     locked_workspace
         .locked_wc()
         .set_sparse_patterns(sparse_patterns)

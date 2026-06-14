@@ -18,6 +18,7 @@ use jj_lib::{
     git::get_git_backend,
     gitignore::GitIgnoreFile,
     ref_name::WorkspaceName,
+    repo_path::RepoPath,
     repo::{ReadonlyRepo, Repo as _},
 };
 
@@ -78,12 +79,14 @@ fn load_base_ignores(repo: &Arc<ReadonlyRepo>) -> Result<Arc<GitIgnoreFile>> {
     let mut git_ignores = GitIgnoreFile::empty();
 
     if let Some(global_excludes) = default_global_git_ignore() {
-        git_ignores = git_ignores.chain_with_file("", global_excludes)?;
+        git_ignores = git_ignores.chain_with_file(RepoPath::root(), global_excludes)?;
     }
 
     if let Ok(git_backend) = get_git_backend(repo.store()) {
-        git_ignores = git_ignores
-            .chain_with_file("", git_backend.git_repo_path().join("info").join("exclude"))?;
+        git_ignores = git_ignores.chain_with_file(
+            RepoPath::root(),
+            git_backend.git_repo_path().join("info").join("exclude"),
+        )?;
     }
 
     Ok(git_ignores)
@@ -114,6 +117,7 @@ fn collect_ignored_paths(
         source_root,
         source_root,
         "",
+        false,
         tracked_paths,
         base_ignores.clone(),
         &mut ignored_paths,
@@ -125,6 +129,7 @@ fn walk_ignored_paths(
     source_root: &Path,
     current_dir: &Path,
     relative_dir: &str,
+    parent_ignored: bool,
     tracked_paths: &TrackedPaths,
     inherited_ignores: Arc<GitIgnoreFile>,
     ignored_paths: &mut Vec<PathBuf>,
@@ -157,14 +162,15 @@ fn walk_ignored_paths(
         }
         relative_path.push_str(file_name);
 
-        let is_ignored = if is_dir {
-            relative_path.push('/');
-            let matched = current_ignores.matches(&relative_path);
-            relative_path.pop();
-            matched
-        } else {
-            current_ignores.matches(&relative_path)
-        };
+        let repo_path = RepoPath::from_internal_string(&relative_path)?;
+        // matches_dir/matches_file only match the exact path, so a path inside an
+        // already-ignored directory is ignored by inheritance, not by matching.
+        let is_ignored = parent_ignored
+            || if is_dir {
+                current_ignores.matches_dir(repo_path)
+            } else {
+                current_ignores.matches_file(repo_path)
+            };
 
         if is_unconditional_symlink(file_name) {
             ignored_paths.push(PathBuf::from(&relative_path));
@@ -180,6 +186,7 @@ fn walk_ignored_paths(
                 source_root,
                 &source_path,
                 &relative_path,
+                is_ignored,
                 tracked_paths,
                 current_ignores.clone(),
                 ignored_paths,
@@ -197,13 +204,9 @@ fn load_directory_gitignore(
     relative_dir: &str,
     inherited_ignores: Arc<GitIgnoreFile>,
 ) -> Result<Arc<GitIgnoreFile>> {
-    let mut prefix = String::with_capacity(relative_dir.len() + 1);
-    if !relative_dir.is_empty() {
-        prefix.push_str(relative_dir);
-        prefix.push('/');
-    }
+    let prefix = RepoPath::from_internal_string(relative_dir)?;
     inherited_ignores
-        .chain_with_file(&prefix, current_dir.join(".gitignore"))
+        .chain_with_file(prefix, current_dir.join(".gitignore"))
         .map_err(Into::into)
 }
 
