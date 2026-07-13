@@ -1608,6 +1608,8 @@ dependencies = [
  "gethostname",
  "jiff",
  "jj-lib",
+ "serde",
+ "serde_json",
  "tempfile",
  "tokio",
 ]
