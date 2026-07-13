@@ -18,20 +18,20 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Command {
-    /// Create a new workspace and open it in Ghostty with auto-generated name
+    /// Create a new workspace and open it in Herdr with auto-generated name
     New {
         /// Name of the new workspace (auto-generated if omitted)
         #[arg(long)]
         name: Option<String>,
 
-        /// Command to run in the new tab after cd-ing into the workspace
+        /// Command to run in the new Herdr tab
         command: Option<String>,
 
-        /// Skip opening a Ghostty tab
+        /// Skip opening a Herdr tab
         #[arg(long)]
         no_tab: bool,
     },
-    /// Open a Ghostty tab at a workspace (defaults to repo-host)
+    /// Open a Herdr tab at a workspace (defaults to repo-host)
     Cd {
         /// Workspace name (defaults to repo-host workspace)
         name: Option<String>,

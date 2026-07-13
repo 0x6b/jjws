@@ -1,4 +1,4 @@
-mod ghostty;
+mod herdr;
 mod ignored;
 mod jj;
 mod names;
@@ -10,7 +10,7 @@ use std::{
 
 use anyhow::{Context, Result, bail};
 use dirs::data_dir;
-use ghostty::open_tab;
+use herdr::open_tab;
 use ignored::symlink_ignored_paths;
 use jj::{
     ForgetDeletion, LoadedWorkspace, create_workspace, forget_workspaces, list_workspaces,
@@ -30,7 +30,7 @@ fn open_tab_or_warn(path: &Path, command: Option<&str>) -> bool {
         Ok(Some(_)) => true,
         Ok(None) => false,
         Err(err) => {
-            eprintln!("Warning: failed to open Ghostty tab: {err:#}");
+            eprintln!("Warning: failed to open Herdr tab: {err:#}");
             false
         }
     }
@@ -68,9 +68,9 @@ pub async fn new_workspace(options: NewOptions, workspace_root: Option<&Path>) -
         println!(
             "{}",
             if tab_opened {
-                "Opened and focused a Ghostty tab"
+                "Opened and focused a Herdr tab"
             } else {
-                "Ghostty tab was not opened"
+                "Herdr tab was not opened"
             }
         );
     }
@@ -123,7 +123,7 @@ pub async fn cd(name: Option<&str>, workspace_root: Option<&Path>) -> Result<()>
     };
 
     if open_tab_or_warn(&path, None) {
-        println!("Opened Ghostty tab at {}", path.display());
+        println!("Opened Herdr tab at {}", path.display());
     } else {
         println!("{}", path.display());
     }
