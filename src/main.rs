@@ -49,6 +49,7 @@ enum Command {
     },
     /// Forget workspaces, then remove their directories when safe.
     /// Must be run from the repo-host workspace.
+    #[command(alias = "rm")]
     Forget {
         /// Workspace names to forget
         #[arg(required = true)]
