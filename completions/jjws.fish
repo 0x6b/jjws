@@ -53,7 +53,7 @@ complete -c jjws -l version -s V -d 'Print version'
 
 # Subcommands (only when no subcommand given yet)
 complete -c jjws -n __fish_use_subcommand -a new -d 'Create a new workspace and open it in Herdr'
-complete -c jjws -n __fish_use_subcommand -a cd -d 'Open a Herdr tab at a workspace'
+complete -c jjws -n __fish_use_subcommand -a cd -d 'Open a Herdr tab at a workspace, or print its path'
 complete -c jjws -n __fish_use_subcommand -a list -d 'List workspaces associated with the repo'
 complete -c jjws -n __fish_use_subcommand -a forget -d 'Forget workspaces and remove directories'
 complete -c jjws -n __fish_use_subcommand -a help -d 'Print help for a subcommand'
@@ -64,6 +64,7 @@ complete -c jjws -n '__fish_seen_subcommand_from new' -l no-tab -d 'Skip opening
 
 # cd: complete workspace names (exclude "default" — no argument means default)
 complete -c jjws -n '__fish_seen_subcommand_from cd' -a '(__jjws_workspaces | string match -rv "^default(\t|\$)")'
+complete -c jjws -n '__fish_seen_subcommand_from cd' -l no-tab -d 'Skip opening a Herdr tab, just print the path'
 
 # forget: complete workspace names (exclude "default" — forgetting it makes no sense)
 complete -c jjws -n '__fish_seen_subcommand_from forget' -a '(__jjws_workspaces | string match -rv "^default(\t|\$)")'

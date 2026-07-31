@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use jjws::{NewOptions, cd, forget, list, new_workspace};
+use jjws::{CdOptions, NewOptions, cd, forget, list, new_workspace};
 
 #[derive(Parser, Debug)]
 #[command(about, version)]
@@ -31,10 +31,14 @@ enum Command {
         #[arg(long)]
         no_tab: bool,
     },
-    /// Open a Herdr tab at a workspace (defaults to repo-host)
+    /// Open a Herdr tab at a workspace, or print its path (defaults to repo-host)
     Cd {
         /// Workspace name (defaults to repo-host workspace)
         name: Option<String>,
+
+        /// Skip opening a Herdr tab, just print the path
+        #[arg(long)]
+        no_tab: bool,
     },
     /// List workspaces associated with the repo
     List {
@@ -62,6 +66,6 @@ async fn main() -> Result<()> {
         }
         Command::Forget { workspaces } => forget(workspaces, ws_root).await,
         Command::List { porcelain } => list(porcelain, ws_root).await,
-        Command::Cd { name } => cd(name.as_deref(), ws_root).await,
+        Command::Cd { name, no_tab } => cd(CdOptions { name, no_tab }, ws_root).await,
     }
 }
