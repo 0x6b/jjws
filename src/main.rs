@@ -41,6 +41,7 @@ enum Command {
         no_tab: bool,
     },
     /// List workspaces associated with the repo
+    #[command(alias = "ls")]
     List {
         /// Machine-readable output (no commit details)
         #[arg(long)]
