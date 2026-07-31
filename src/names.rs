@@ -18,10 +18,12 @@ const ANIMALS: &[&str] = &[
 ];
 
 pub fn generate(exists: impl Fn(&str) -> bool) -> String {
-    let nanos = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap_or_default()
-        .subsec_nanos() as u64;
+    let nanos = u64::from(
+        SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap_or_default()
+            .subsec_nanos(),
+    );
 
     // xorshift to spread clustered nanosecond values
     let mut seed = nanos;

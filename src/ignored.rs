@@ -18,8 +18,8 @@ use jj_lib::{
     git::get_git_backend,
     gitignore::GitIgnoreFile,
     ref_name::WorkspaceName,
-    repo_path::RepoPath,
     repo::{ReadonlyRepo, Repo as _},
+    repo_path::RepoPath,
 };
 
 pub fn symlink_ignored_paths(
@@ -119,7 +119,7 @@ fn collect_ignored_paths(
         "",
         false,
         tracked_paths,
-        base_ignores.clone(),
+        &base_ignores.clone(),
         &mut ignored_paths,
     )?;
     Ok(ignored_paths)
@@ -131,15 +131,16 @@ fn walk_ignored_paths(
     relative_dir: &str,
     parent_ignored: bool,
     tracked_paths: &TrackedPaths,
-    inherited_ignores: Arc<GitIgnoreFile>,
+    inherited_ignores: &Arc<GitIgnoreFile>,
     ignored_paths: &mut Vec<PathBuf>,
 ) -> Result<()> {
-    let current_ignores = load_directory_gitignore(current_dir, relative_dir, inherited_ignores)?;
+    let current_ignores =
+        load_directory_gitignore(current_dir, relative_dir, &inherited_ignores.clone())?;
     let mut entries: Vec<DirEntry> = read_dir(current_dir)
         .with_context(|| format!("failed to read {}", current_dir.display()))?
         .collect::<io::Result<_>>()
         .with_context(|| format!("failed to read {}", current_dir.display()))?;
-    entries.sort_by_key(|entry| entry.file_name());
+    entries.sort_by_key(DirEntry::file_name);
 
     for entry in entries {
         let file_name = entry.file_name();
@@ -188,7 +189,7 @@ fn walk_ignored_paths(
                 &relative_path,
                 is_ignored,
                 tracked_paths,
-                current_ignores.clone(),
+                &current_ignores.clone(),
                 ignored_paths,
             )?;
         } else if is_ignored && !tracked_paths.contains(&relative_path) {
@@ -202,7 +203,7 @@ fn walk_ignored_paths(
 fn load_directory_gitignore(
     current_dir: &Path,
     relative_dir: &str,
-    inherited_ignores: Arc<GitIgnoreFile>,
+    inherited_ignores: &Arc<GitIgnoreFile>,
 ) -> Result<Arc<GitIgnoreFile>> {
     let prefix = RepoPath::from_internal_string(relative_dir)?;
     inherited_ignores
@@ -266,12 +267,8 @@ impl TrackedPaths {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        collections,
-        fs::{create_dir_all, write},
-    };
+    use std::fs::{create_dir_all, write};
 
-    use jj_lib::gitignore;
     use tempfile::TempDir;
 
     use super::*;
@@ -284,11 +281,8 @@ mod tests {
         create_dir_all(root.join("node_modules").join("pkg"))?;
         write(root.join("node_modules").join("pkg").join("file"), "contents")?;
 
-        let ignored_paths = collect_ignored_paths(
-            root,
-            &TrackedPaths::default(),
-            &gitignore::GitIgnoreFile::empty(),
-        )?;
+        let ignored_paths =
+            collect_ignored_paths(root, &TrackedPaths::default(), &GitIgnoreFile::empty())?;
         assert_eq!(ignored_paths, vec![PathBuf::from("node_modules")]);
         Ok(())
     }
@@ -311,10 +305,10 @@ mod tests {
         write(root.join("README.md"), "hello")?;
 
         let tracked = TrackedPaths {
-            tracked_paths: collections::HashSet::from(["CLAUDE.md".into()]),
-            tracked_dirs: collections::HashSet::new(),
+            tracked_paths: HashSet::from(["CLAUDE.md".into()]),
+            tracked_dirs: HashSet::new(),
         };
-        let paths = collect_ignored_paths(root, &tracked, &gitignore::GitIgnoreFile::empty())?;
+        let paths = collect_ignored_paths(root, &tracked, &GitIgnoreFile::empty())?;
 
         assert!(paths.contains(&PathBuf::from("CLAUDE.md")));
         assert!(paths.contains(&PathBuf::from(".mcp.json")));
@@ -337,11 +331,10 @@ mod tests {
         write(root.join("build").join("cache.bin"), "ignored")?;
 
         let tracked_paths = TrackedPaths {
-            tracked_paths: collections::HashSet::from([String::from("build/tracked.txt")]),
-            tracked_dirs: collections::HashSet::from([String::from("build")]),
+            tracked_paths: HashSet::from([String::from("build/tracked.txt")]),
+            tracked_dirs: HashSet::from([String::from("build")]),
         };
-        let ignored_paths =
-            collect_ignored_paths(root, &tracked_paths, &gitignore::GitIgnoreFile::empty())?;
+        let ignored_paths = collect_ignored_paths(root, &tracked_paths, &GitIgnoreFile::empty())?;
         assert_eq!(ignored_paths, vec![PathBuf::from("build/cache.bin")]);
         Ok(())
     }
