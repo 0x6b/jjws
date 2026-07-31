@@ -674,7 +674,7 @@ fn resolve_repo_path(workspace_root: &Path) -> Result<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use jj_lib::{config::StackedConfig, ref_name};
+    use jj_lib::config::StackedConfig;
     use tempfile::TempDir;
 
     use super::*;
@@ -715,8 +715,7 @@ mod tests {
 
         let loaded = LoadedWorkspace { workspace, repo };
         let destination = temp_dir.path().join("secondary");
-        create_workspace(&loaded, &destination, ref_name::WorkspaceNameBuf::from("secondary"))
-            .await?;
+        create_workspace(&loaded, &destination, WorkspaceNameBuf::from("secondary")).await?;
 
         let secondary = load_workspace(&destination).await?;
         let wc_commit_id = secondary

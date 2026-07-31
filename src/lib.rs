@@ -30,8 +30,8 @@ pub struct CdOptions {
     pub no_tab: bool,
 }
 
-fn open_tab_or_warn(path: &Path, command: Option<&str>) -> bool {
-    match open_tab(path, command) {
+fn open_tab_or_warn(path: &Path, repo_root: &Path, command: Option<&str>) -> bool {
+    match open_tab(path, repo_root, command) {
         Ok(Some(_)) => true,
         Ok(None) => false,
         Err(err) => {
@@ -64,7 +64,8 @@ pub async fn new_workspace(options: NewOptions, workspace_root: Option<&Path>) -
         ctx.current.workspace.workspace_name(),
     )?;
 
-    let tab_opened = !options.no_tab && open_tab_or_warn(&destination, options.command.as_deref());
+    let tab_opened = !options.no_tab
+        && open_tab_or_warn(&destination, &ctx.repo_root, options.command.as_deref());
 
     println!("Created workspace at {}", destination.display());
     let noun = if symlinked == 1 { "path" } else { "paths" };
@@ -72,11 +73,7 @@ pub async fn new_workspace(options: NewOptions, workspace_root: Option<&Path>) -
     if !options.no_tab {
         println!(
             "{}",
-            if tab_opened {
-                "Opened and focused a Herdr tab"
-            } else {
-                "Herdr tab was not opened"
-            }
+            if tab_opened { "Opened and focused a Herdr tab" } else { "Herdr tab was not opened" }
         );
     }
 
@@ -127,7 +124,7 @@ pub async fn cd(options: CdOptions, workspace_root: Option<&Path>) -> Result<()>
         None => ctx.repo_root.clone(),
     };
 
-    if !options.no_tab && open_tab_or_warn(&path, None) {
+    if !options.no_tab && open_tab_or_warn(&path, &ctx.repo_root, None) {
         println!("Opened Herdr tab at {}", path.display());
     } else {
         println!("{}", path.display());
