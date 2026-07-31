@@ -25,6 +25,11 @@ pub struct NewOptions {
     pub no_tab: bool,
 }
 
+pub struct CdOptions {
+    pub name: Option<String>,
+    pub no_tab: bool,
+}
+
 fn open_tab_or_warn(path: &Path, command: Option<&str>) -> bool {
     match open_tab(path, command) {
         Ok(Some(_)) => true,
@@ -111,9 +116,9 @@ pub async fn forget(workspaces: Vec<String>, workspace_root: Option<&Path>) -> R
     Ok(())
 }
 
-pub async fn cd(name: Option<&str>, workspace_root: Option<&Path>) -> Result<()> {
+pub async fn cd(options: CdOptions, workspace_root: Option<&Path>) -> Result<()> {
     let ctx = CommandContext::load(workspace_root).await?;
-    let path = match name {
+    let path = match options.name.as_deref() {
         Some(name) => {
             let workspace_name = WorkspaceNameBuf::from(name);
             locate_workspace(&ctx.current, &workspace_name, &ctx.repo_root, &ctx.workspace_root)
@@ -122,7 +127,7 @@ pub async fn cd(name: Option<&str>, workspace_root: Option<&Path>) -> Result<()>
         None => ctx.repo_root.clone(),
     };
 
-    if open_tab_or_warn(&path, None) {
+    if !options.no_tab && open_tab_or_warn(&path, None) {
         println!("Opened Herdr tab at {}", path.display());
     } else {
         println!("{}", path.display());
