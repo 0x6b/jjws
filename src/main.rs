@@ -41,6 +41,7 @@ enum Command {
         no_tab: bool,
     },
     /// List workspaces associated with the repo
+    #[command(alias = "ls")]
     List {
         /// Machine-readable output (no commit details)
         #[arg(long)]
@@ -48,6 +49,7 @@ enum Command {
     },
     /// Forget workspaces, then remove their directories when safe.
     /// Must be run from the repo-host workspace.
+    #[command(alias = "rm")]
     Forget {
         /// Workspace names to forget
         #[arg(required = true)]
