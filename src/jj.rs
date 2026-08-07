@@ -487,6 +487,12 @@ async fn repo_host_workspace_name(
         .map(|workspace| workspace.workspace.workspace_name().to_owned())
 }
 
+pub(crate) fn repo_workspace_dir(repo_root: &Path, workspace_root: &Path) -> PathBuf {
+    let repo_dir_name = repo_root.file_name().unwrap_or_default();
+    let parent_dir_name = repo_root.parent().and_then(Path::file_name).unwrap_or_default();
+    workspace_root.join(parent_dir_name).join(repo_dir_name)
+}
+
 struct WorkspaceLocator<'a> {
     current: &'a LoadedWorkspace,
     repo_root: &'a Path,
@@ -515,8 +521,7 @@ impl<'a> WorkspaceLocator<'a> {
         if self.is_repo_host(workspace_name) {
             return self.repo_root.to_path_buf();
         }
-        let repo_dir_name = self.repo_root.file_name().unwrap_or_default();
-        self.workspace_root.join(repo_dir_name).join(workspace_name.as_str())
+        repo_workspace_dir(self.repo_root, self.workspace_root).join(workspace_name.as_str())
     }
 
     fn is_repo_host(&self, workspace_name: &WorkspaceName) -> bool {

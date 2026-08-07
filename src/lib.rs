@@ -14,7 +14,7 @@ use herdr::open_tab;
 use ignored::symlink_ignored_paths;
 use jj::{
     ForgetDeletion, LoadedWorkspace, create_workspace, forget_workspaces, list_workspaces,
-    load_workspace, locate_workspace, repo_root_from_repo_path,
+    load_workspace, locate_workspace, repo_root_from_repo_path, repo_workspace_dir,
 };
 use jj_lib::ref_name::WorkspaceNameBuf;
 use names::generate;
@@ -51,8 +51,7 @@ pub async fn new_workspace(options: NewOptions, workspace_root: Option<&Path>) -
                 .is_some()
         })
     });
-    let repo_dir_name = ctx.repo_root.file_name().context("repo root has no directory name")?;
-    let destination = ctx.workspace_root.join(repo_dir_name).join(&name);
+    let destination = repo_workspace_dir(&ctx.repo_root, &ctx.workspace_root).join(&name);
     let workspace_name = WorkspaceNameBuf::from(name.as_str());
 
     create_workspace(&ctx.current, &destination, workspace_name).await?;
