@@ -29,8 +29,9 @@ Commands:
 
 Options:
       --workspace-root <DIR>  Root directory where workspaces are created as
-                              <DIR>/<repo>/<name>. Defaults to <data-dir>/jjws
-                              (e.g. ~/Library/Application Support/jjws)
+                              <DIR>/<parent>/<repo>/<name>. Defaults to
+                              <data-dir>/jjws (e.g. ~/Library/Application
+                              Support/jjws)
   -h, --help                  Print help
   -V, --version               Print version
 ```
