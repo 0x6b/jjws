@@ -7,7 +7,8 @@ When run inside [Herdr](https://herdr.dev), `jjws` creates tabs through Herdr's 
 - **Creates workspaces** outside the repo tree (under `<data-dir>/jjws` by default), with auto-generated animal names
 - **Symlinks jj-ignored paths** (e.g. `node_modules/`, `build/`) from the source workspace so tools just work
 - **Opens a Herdr tab** in the new workspace (opt-out with `--no-tab`), optionally running a command
-- **Jumps to workspaces** with `cd` — opens a Herdr tab at any workspace (defaults to repo-host), or prints the path with `--no-tab`
+- **Opens workspace tabs** with `tab`
+- **Prints workspace paths** with `list --path-only`, suitable for `cd` command substitution
 - **Cleans up** forgotten workspaces by removing their directories when safe
 
 ## Usage
@@ -20,8 +21,7 @@ Usage: jjws [OPTIONS] [COMMAND]
 
 Commands:
   new     Create a new workspace and open it in Herdr with auto-generated name
-  cd      Open a Herdr tab at a workspace, or print its path (defaults to
-          repo-host)
+  tab     Open a workspace in a new Herdr tab
   list    List workspaces associated with the repo
   forget  Forget workspaces, then remove their directories when safe. Must be
           run from the repo-host workspace
@@ -34,6 +34,12 @@ Options:
                               Support/jjws)
   -h, --help                  Print help
   -V, --version               Print version
+```
+
+To change the current shell's directory to a workspace:
+
+```console
+$ cd -- "$(jjws list --path-only <workspace>)"
 ```
 
 ## Install

@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use jjws::{CdOptions, NewOptions, cd, forget, list, new_workspace};
+use jjws::{ListOptions, NewOptions, forget, list, new_workspace, tab};
 
 #[derive(Parser, Debug)]
 #[command(about, version)]
@@ -31,21 +31,25 @@ enum Command {
         #[arg(long)]
         no_tab: bool,
     },
-    /// Open a Herdr tab at a workspace, or print its path (defaults to repo-host)
-    Cd {
-        /// Workspace name (defaults to repo-host workspace)
-        name: Option<String>,
-
-        /// Skip opening a Herdr tab, just print the path
-        #[arg(long)]
-        no_tab: bool,
+    /// Open a workspace in a new Herdr tab
+    Tab {
+        /// Workspace name
+        workspace: String,
     },
     /// List workspaces associated with the repo
     #[command(alias = "ls")]
     List {
         /// Machine-readable output (no commit details)
-        #[arg(long)]
+        #[arg(long, conflicts_with = "path_only")]
         porcelain: bool,
+
+        /// Print only the workspace path
+        #[arg(long, requires = "workspace")]
+        path_only: bool,
+
+        /// Workspace whose path to print (requires --path-only)
+        #[arg(requires = "path_only")]
+        workspace: Option<String>,
     },
     /// Forget workspaces, then remove their directories when safe.
     /// Must be run from the repo-host workspace.
@@ -62,12 +66,19 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
     let ws_root = cli.workspace_root.as_deref();
 
-    match cli.command.unwrap_or(Command::List { porcelain: false }) {
+    match cli.command.unwrap_or(Command::List {
+        porcelain: false,
+        path_only: false,
+        workspace: None,
+    }) {
         Command::New { name, command, no_tab } => {
             new_workspace(NewOptions { name, command, no_tab }, ws_root).await
         }
         Command::Forget { workspaces } => forget(workspaces, ws_root).await,
-        Command::List { porcelain } => list(porcelain, ws_root).await,
-        Command::Cd { name, no_tab } => cd(CdOptions { name, no_tab }, ws_root).await,
+        Command::List { porcelain, path_only, workspace } => {
+            debug_assert_eq!(path_only, workspace.is_some());
+            list(ListOptions { porcelain, path_only: workspace }, ws_root).await
+        }
+        Command::Tab { workspace } => tab(workspace, ws_root).await,
     }
 }

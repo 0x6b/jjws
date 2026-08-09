@@ -25,9 +25,9 @@ pub struct NewOptions {
     pub no_tab: bool,
 }
 
-pub struct CdOptions {
-    pub name: Option<String>,
-    pub no_tab: bool,
+pub struct ListOptions {
+    pub porcelain: bool,
+    pub path_only: Option<String>,
 }
 
 fn open_tab_or_warn(path: &Path, repo_root: &Path, command: Option<&str>) -> bool {
@@ -112,33 +112,36 @@ pub async fn forget(workspaces: Vec<String>, workspace_root: Option<&Path>) -> R
     Ok(())
 }
 
-pub async fn cd(options: CdOptions, workspace_root: Option<&Path>) -> Result<()> {
+pub async fn tab(workspace: String, workspace_root: Option<&Path>) -> Result<()> {
     let ctx = CommandContext::load(workspace_root).await?;
-    let path = match options.name.as_deref() {
-        Some(name) => {
-            let workspace_name = WorkspaceNameBuf::from(name);
-            locate_workspace(&ctx.current, &workspace_name, &ctx.repo_root, &ctx.workspace_root)
-                .await?
-        }
-        None => ctx.repo_root.clone(),
-    };
+    let workspace_name = WorkspaceNameBuf::from(workspace.as_str());
+    let path =
+        locate_workspace(&ctx.current, &workspace_name, &ctx.repo_root, &ctx.workspace_root).await?;
 
-    if !options.no_tab && open_tab_or_warn(&path, &ctx.repo_root, None) {
-        println!("Opened Herdr tab at {}", path.display());
-    } else {
-        println!("{}", path.display());
+    match open_tab(&path, &ctx.repo_root, None)? {
+        Some(_) => println!("Opened Herdr tab at {}", path.display()),
+        None => bail!("Herdr is not available"),
     }
     Ok(())
 }
 
-pub async fn list(porcelain: bool, workspace_root: Option<&Path>) -> Result<()> {
+pub async fn list(options: ListOptions, workspace_root: Option<&Path>) -> Result<()> {
     let ctx = CommandContext::load(workspace_root).await?;
-    let include_commits = !porcelain;
+    if let Some(workspace) = options.path_only {
+        let workspace_name = WorkspaceNameBuf::from(workspace.as_str());
+        let path =
+            locate_workspace(&ctx.current, &workspace_name, &ctx.repo_root, &ctx.workspace_root)
+                .await?;
+        println!("{}", path.display());
+        return Ok(());
+    }
+
+    let include_commits = !options.porcelain;
 
     for ws in
         list_workspaces(&ctx.current, &ctx.repo_root, &ctx.workspace_root, include_commits).await
     {
-        if porcelain {
+        if options.porcelain {
             println!("{ws}");
         } else {
             ws.print_colored();
