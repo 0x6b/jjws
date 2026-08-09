@@ -115,8 +115,8 @@ pub async fn forget(workspaces: Vec<String>, workspace_root: Option<&Path>) -> R
 pub async fn tab(workspace: String, workspace_root: Option<&Path>) -> Result<()> {
     let ctx = CommandContext::load(workspace_root).await?;
     let workspace_name = WorkspaceNameBuf::from(workspace.as_str());
-    let path =
-        locate_workspace(&ctx.current, &workspace_name, &ctx.repo_root, &ctx.workspace_root).await?;
+    let path = locate_workspace(&ctx.current, &workspace_name, &ctx.repo_root, &ctx.workspace_root)
+        .await?;
 
     match open_tab(&path, &ctx.repo_root, None)? {
         Some(_) => println!("Opened Herdr tab at {}", path.display()),
