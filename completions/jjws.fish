@@ -53,7 +53,7 @@ complete -c jjws -l version -s V -d 'Print version'
 
 # Subcommands (only when no subcommand given yet)
 complete -c jjws -n __fish_use_subcommand -a new -d 'Create a new workspace and open it in Herdr'
-complete -c jjws -n __fish_use_subcommand -a cd -d 'Open a Herdr tab at a workspace, or print its path'
+complete -c jjws -n __fish_use_subcommand -a tab -d 'Open a workspace in a new Herdr tab'
 complete -c jjws -n __fish_use_subcommand -a list -d 'List workspaces associated with the repo'
 complete -c jjws -n __fish_use_subcommand -a ls -d 'Alias for list'
 complete -c jjws -n __fish_use_subcommand -a forget -d 'Forget workspaces and remove directories'
@@ -64,15 +64,16 @@ complete -c jjws -n __fish_use_subcommand -a help -d 'Print help for a subcomman
 complete -c jjws -n '__fish_seen_subcommand_from new' -l name -r -d 'Workspace name (auto-generated if omitted)'
 complete -c jjws -n '__fish_seen_subcommand_from new' -l no-tab -d 'Skip opening a Herdr tab'
 
-# cd: complete workspace names (exclude "default" — no argument means default)
-complete -c jjws -n '__fish_seen_subcommand_from cd' -a '(__jjws_workspaces | string match -rv "^default(\t|\$)")'
-complete -c jjws -n '__fish_seen_subcommand_from cd' -l no-tab -d 'Skip opening a Herdr tab, just print the path'
+# tab: complete workspace names
+complete -c jjws -n '__fish_seen_subcommand_from tab' -a '(__jjws_workspaces)'
 
 # forget: complete workspace names (exclude "default" — forgetting it makes no sense)
 complete -c jjws -n '__fish_seen_subcommand_from forget rm' -a '(__jjws_workspaces | string match -rv "^default(\t|\$)")'
 
-# list: --porcelain flag
+# list: output modes and workspace names for --path-only
 complete -c jjws -n '__fish_seen_subcommand_from list ls' -l porcelain -d 'Machine-readable output (no commit details)'
+complete -c jjws -n '__fish_seen_subcommand_from list ls' -l path-only -d 'Print only the workspace path'
+complete -c jjws -n '__fish_seen_subcommand_from list ls; and __fish_contains_opt path-only' -a '(__jjws_workspaces)'
 
 # help: complete subcommand names
-complete -c jjws -n '__fish_seen_subcommand_from help' -a 'new cd list forget' -d 'Subcommand'
+complete -c jjws -n '__fish_seen_subcommand_from help' -a 'new tab list forget' -d 'Subcommand'
