@@ -8,7 +8,7 @@ When run inside [Herdr](https://herdr.dev), `jjws` creates tabs through Herdr's 
 - **Symlinks jj-ignored paths** (e.g. `node_modules/`, `build/`) from the source workspace so tools just work
 - **Opens a Herdr tab** in the new workspace (opt-out with `--no-tab`), optionally running a command
 - **Opens workspace tabs** with `tab`
-- **Prints workspace paths** with `list --path-only`, suitable for `cd` command substitution
+- **Lists all workspaces or one selected workspace**, with optional path-only output
 - **Cleans up** forgotten workspaces by removing their directories when safe
 
 ## Usage
@@ -40,6 +40,16 @@ To change the current shell's directory to a workspace:
 
 ```console
 $ cd -- "$(jjws list --path-only <workspace>)"
+```
+
+The `list` command (also available as `ls`) accepts an optional workspace name, while
+`--path-only` independently controls the output format:
+
+```console
+$ jjws ls
+$ jjws ls <workspace>
+$ jjws ls --path-only
+$ jjws ls --path-only <workspace>
 ```
 
 ## Install

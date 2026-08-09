@@ -27,7 +27,8 @@ pub struct NewOptions {
 
 pub struct ListOptions {
     pub porcelain: bool,
-    pub path_only: Option<String>,
+    pub path_only: bool,
+    pub workspace: Option<String>,
 }
 
 fn open_tab_or_warn(path: &Path, repo_root: &Path, command: Option<&str>) -> bool {
@@ -127,21 +128,21 @@ pub async fn tab(workspace: String, workspace_root: Option<&Path>) -> Result<()>
 
 pub async fn list(options: ListOptions, workspace_root: Option<&Path>) -> Result<()> {
     let ctx = CommandContext::load(workspace_root).await?;
-    if let Some(workspace) = options.path_only {
-        let workspace_name = WorkspaceNameBuf::from(workspace.as_str());
-        let path =
-            locate_workspace(&ctx.current, &workspace_name, &ctx.repo_root, &ctx.workspace_root)
-                .await?;
-        println!("{}", path.display());
-        return Ok(());
+    let include_commits = !options.porcelain && !options.path_only;
+    let mut workspaces =
+        list_workspaces(&ctx.current, &ctx.repo_root, &ctx.workspace_root, include_commits).await;
+
+    if let Some(workspace) = options.workspace {
+        workspaces.retain(|ws| ws.name.as_str() == workspace);
+        if workspaces.is_empty() {
+            bail!("no such workspace: {workspace}");
+        }
     }
 
-    let include_commits = !options.porcelain;
-
-    for ws in
-        list_workspaces(&ctx.current, &ctx.repo_root, &ctx.workspace_root, include_commits).await
-    {
-        if options.porcelain {
+    for ws in workspaces {
+        if options.path_only {
+            println!("{}", ws.path.display());
+        } else if options.porcelain {
             println!("{ws}");
         } else {
             ws.print_colored();
