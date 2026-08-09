@@ -17,14 +17,17 @@ use jj_lib::{
     backend::CommitId,
     commit::Commit,
     config::{ConfigLayer, ConfigResolutionContext, ConfigSource, StackedConfig, resolve},
+    default_backend_factories::{
+        default_backend_factories, default_working_copy_factories, default_working_copy_factory,
+    },
     file_util::path_from_bytes,
     object_id::ObjectId as _,
     ref_name::{WorkspaceName, WorkspaceNameBuf},
-    repo::{ReadonlyRepo, Repo as _, StoreFactories},
+    repo::{ReadonlyRepo, Repo as _},
     revset::{ResolvedExpression, ResolvedExpression::DagRange},
     rewrite::merge_commit_trees,
     settings::UserSettings,
-    workspace::{Workspace, default_working_copy_factories, default_working_copy_factory},
+    workspace::Workspace,
 };
 
 pub(crate) struct LoadedWorkspace {
@@ -162,7 +165,7 @@ pub(crate) async fn load_workspace(start_dir: &Path) -> Result<LoadedWorkspace> 
     let workspace = Workspace::load(
         &settings,
         workspace_root,
-        &StoreFactories::default(),
+        &default_backend_factories(),
         &default_working_copy_factories(),
     )?;
     let repo = workspace.repo_loader().load_at_head().await?;
