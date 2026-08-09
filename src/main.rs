@@ -44,11 +44,10 @@ enum Command {
         porcelain: bool,
 
         /// Print only the workspace path
-        #[arg(long, requires = "workspace")]
+        #[arg(long)]
         path_only: bool,
 
-        /// Workspace whose path to print (requires --path-only)
-        #[arg(requires = "path_only")]
+        /// Workspace to list (lists all workspaces if omitted)
         workspace: Option<String>,
     },
     /// Forget workspaces, then remove their directories when safe.
@@ -76,9 +75,32 @@ async fn main() -> Result<()> {
         }
         Command::Forget { workspaces } => forget(workspaces, ws_root).await,
         Command::List { porcelain, path_only, workspace } => {
-            debug_assert_eq!(path_only, workspace.is_some());
-            list(ListOptions { porcelain, path_only: workspace }, ws_root).await
+            list(ListOptions { porcelain, path_only, workspace }, ws_root).await
         }
         Command::Tab { workspace } => tab(workspace, ws_root).await,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse_list(args: &[&str]) -> (bool, Option<String>) {
+        let cli = Cli::try_parse_from(args).unwrap();
+        match cli.command.unwrap() {
+            Command::List { path_only, workspace, .. } => (path_only, workspace),
+            command => panic!("expected list command, got {command:?}"),
+        }
+    }
+
+    #[test]
+    fn list_accepts_all_path_and_workspace_combinations() {
+        assert_eq!(parse_list(&["jjws", "ls"]), (false, None));
+        assert_eq!(parse_list(&["jjws", "ls", "otter"]), (false, Some("otter".into())));
+        assert_eq!(parse_list(&["jjws", "ls", "--path-only"]), (true, None));
+        assert_eq!(
+            parse_list(&["jjws", "ls", "--path-only", "otter"]),
+            (true, Some("otter".into()))
+        );
     }
 }

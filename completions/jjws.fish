@@ -70,10 +70,10 @@ complete -c jjws -n '__fish_seen_subcommand_from tab' -a '(__jjws_workspaces)'
 # forget: complete workspace names (exclude "default" — forgetting it makes no sense)
 complete -c jjws -n '__fish_seen_subcommand_from forget rm' -a '(__jjws_workspaces | string match -rv "^default(\t|\$)")'
 
-# list: output modes and workspace names for --path-only
+# list: output modes and optional workspace filter
 complete -c jjws -n '__fish_seen_subcommand_from list ls' -l porcelain -d 'Machine-readable output (no commit details)'
-complete -c jjws -n '__fish_seen_subcommand_from list ls' -l path-only -d 'Print only the workspace path'
-complete -c jjws -n '__fish_seen_subcommand_from list ls; and __fish_contains_opt path-only' -a '(__jjws_workspaces)'
+complete -c jjws -n '__fish_seen_subcommand_from list ls' -l path-only -d 'Print only workspace paths'
+complete -c jjws -n '__fish_seen_subcommand_from list ls' -a '(__jjws_workspaces)'
 
 # help: complete subcommand names
 complete -c jjws -n '__fish_seen_subcommand_from help' -a 'new tab list forget' -d 'Subcommand'
