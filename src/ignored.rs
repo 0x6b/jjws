@@ -6,7 +6,7 @@ use std::{
     collections::HashSet,
     env::var,
     ffi::OsStr,
-    fs::{DirEntry, create_dir_all, read_dir},
+    fs::{DirEntry, copy, create_dir_all, hard_link, read_dir, read_link},
     io,
     path::{Path, PathBuf},
     sync::Arc,
@@ -22,27 +22,45 @@ use jj_lib::{
     repo_path::RepoPath,
 };
 
-pub fn symlink_ignored_paths(
+/// What `link_ignored_paths` produced, so the caller can report it.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct LinkSummary {
+    pub symlinked: usize,
+    pub hardlink_trees: usize,
+    pub hardlinked_files: usize,
+    pub copied_files: usize,
+}
+
+pub fn link_ignored_paths(
     source_root: &Path,
     destination_root: &Path,
     repo: &Arc<ReadonlyRepo>,
     workspace_name: &WorkspaceName,
-) -> Result<usize> {
+) -> Result<LinkSummary> {
     let tracked_paths = collect_tracked_paths(repo, workspace_name)?;
     let base_ignores = load_base_ignores(repo)?;
     let ignored_paths = collect_ignored_paths(source_root, &tracked_paths, &base_ignores)?;
 
-    ignored_paths.iter().try_fold(0usize, |created, rel| {
+    ignored_paths.iter().try_fold(LinkSummary::default(), |mut summary, rel| {
         let destination_path = destination_root.join(rel);
         if destination_path.symlink_metadata().is_ok() {
-            return Ok(created);
+            return Ok(summary);
         }
         if let Some(parent) = destination_path.parent() {
             create_dir_all(parent)
                 .with_context(|| format!("failed to create {}", parent.display()))?;
         }
-        create_symlink(&source_root.join(rel), &destination_path)?;
-        Ok(created + 1)
+        let source_path = source_root.join(rel);
+        if wants_hardlink_tree(rel, &source_path) {
+            let counts = hardlink_tree(&source_path, &destination_path)?;
+            summary.hardlink_trees += 1;
+            summary.hardlinked_files += counts.hardlinked;
+            summary.copied_files += counts.copied;
+        } else {
+            create_symlink(&source_path, &destination_path, source_path.is_dir())?;
+            summary.symlinked += 1;
+        }
+        Ok(summary)
     })
 }
 
@@ -232,19 +250,78 @@ fn is_unconditional_symlink(file_name: &str) -> bool {
     UNCONDITIONAL_SYMLINKS.contains(&file_name)
 }
 
+/// Directories that get a real directory full of hard links instead of a
+/// symlink. npm refuses to install into a symlinked `node_modules`, so the
+/// workspace needs a directory it can treat as its own.
+const HARDLINK_TREES: &[&str] = &["node_modules"];
+
+fn wants_hardlink_tree(relative_path: &Path, source: &Path) -> bool {
+    relative_path
+        .file_name()
+        .and_then(OsStr::to_str)
+        .is_some_and(|name| HARDLINK_TREES.contains(&name))
+        && source.symlink_metadata().is_ok_and(|m| m.is_dir())
+}
+
+#[derive(Debug, Default)]
+struct TreeCounts {
+    hardlinked: usize,
+    copied: usize,
+}
+
+/// Mirrors `source` into `destination` as real directories whose files are hard
+/// links back to the originals. Sharing inodes costs no disk space, and npm
+/// replaces packages by unlinking rather than writing in place, so an install in
+/// one workspace does not reach into another.
+fn hardlink_tree(source: &Path, destination: &Path) -> Result<TreeCounts> {
+    create_dir_all(destination)
+        .with_context(|| format!("failed to create {}", destination.display()))?;
+
+    let mut counts = TreeCounts::default();
+    for entry in read_dir(source).with_context(|| format!("failed to read {}", source.display()))? {
+        let entry = entry.with_context(|| format!("failed to read {}", source.display()))?;
+        let source_path = entry.path();
+        let destination_path = destination.join(entry.file_name());
+        let file_type = entry
+            .file_type()
+            .with_context(|| format!("failed to read {}", source_path.display()))?;
+
+        if file_type.is_symlink() {
+            // A hard link cannot stand in for a symlink, and the target is often
+            // relative (`.bin` entries), so recreate the link itself.
+            let target = read_link(&source_path)
+                .with_context(|| format!("failed to read {}", source_path.display()))?;
+            create_symlink(&target, &destination_path, source_path.is_dir())?;
+        } else if file_type.is_dir() {
+            let nested = hardlink_tree(&source_path, &destination_path)?;
+            counts.hardlinked += nested.hardlinked;
+            counts.copied += nested.copied;
+        } else if hard_link(&source_path, &destination_path).is_ok() {
+            counts.hardlinked += 1;
+        } else {
+            // Hard links fail across filesystems, so fall back to a real copy.
+            copy(&source_path, &destination_path)
+                .with_context(|| format!("failed to create {}", destination_path.display()))?;
+            counts.copied += 1;
+        }
+    }
+
+    Ok(counts)
+}
+
 #[cfg(unix)]
-fn create_symlink(source: &Path, destination: &Path) -> Result<()> {
-    symlink(source, destination)
+fn create_symlink(target: &Path, destination: &Path, _target_is_dir: bool) -> Result<()> {
+    symlink(target, destination)
         .with_context(|| format!("failed to create {}", destination.display()))
 }
 
 #[cfg(windows)]
-fn create_symlink(source: &Path, destination: &Path) -> Result<()> {
-    if source.is_dir() {
-        symlink_dir(source, destination)
+fn create_symlink(target: &Path, destination: &Path, target_is_dir: bool) -> Result<()> {
+    if target_is_dir {
+        symlink_dir(target, destination)
             .with_context(|| format!("failed to create {}", destination.display()))
     } else {
-        symlink_file(source, destination)
+        symlink_file(target, destination)
             .with_context(|| format!("failed to create {}", destination.display()))
     }
 }
@@ -267,11 +344,61 @@ impl TrackedPaths {
 
 #[cfg(test)]
 mod tests {
-    use std::fs::{create_dir_all, write};
+    use std::fs::{create_dir_all, read_to_string, write};
+    #[cfg(unix)]
+    use std::os::unix::fs::MetadataExt as _;
 
     use tempfile::TempDir;
 
     use super::*;
+
+    #[test]
+    fn hardlink_tree_links_files_and_recreates_symlinks() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let source = temp_dir.path().join("node_modules");
+        let destination = temp_dir.path().join("workspace").join("node_modules");
+        create_dir_all(source.join("pkg"))?;
+        write(source.join("pkg").join("index.js"), "contents")?;
+        create_dir_all(source.join(".bin"))?;
+        #[cfg(unix)]
+        symlink("../pkg/index.js", source.join(".bin").join("tool"))?;
+
+        let counts = hardlink_tree(&source, &destination)?;
+
+        assert_eq!(counts.hardlinked, 1);
+        assert_eq!(counts.copied, 0);
+        assert_eq!(read_to_string(destination.join("pkg").join("index.js"))?, "contents");
+        #[cfg(unix)]
+        {
+            // The destination file must be the very same inode, not a copy.
+            assert_eq!(
+                source.join("pkg").join("index.js").metadata()?.ino(),
+                destination.join("pkg").join("index.js").metadata()?.ino()
+            );
+            let link = destination.join(".bin").join("tool");
+            assert!(link.symlink_metadata()?.file_type().is_symlink());
+            assert_eq!(read_link(&link)?, PathBuf::from("../pkg/index.js"));
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn wants_hardlink_tree_only_for_named_directories() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let root = temp_dir.path();
+        create_dir_all(root.join("web").join("node_modules"))?;
+        create_dir_all(root.join("target"))?;
+        write(root.join("node_modules"), "not a directory")?;
+
+        assert!(wants_hardlink_tree(
+            Path::new("web/node_modules"),
+            &root.join("web").join("node_modules")
+        ));
+        assert!(!wants_hardlink_tree(Path::new("target"), &root.join("target")));
+        // A file that happens to carry the name is left to the symlink path.
+        assert!(!wants_hardlink_tree(Path::new("node_modules"), &root.join("node_modules")));
+        Ok(())
+    }
 
     #[test]
     fn collect_ignored_paths_symlinks_whole_untracked_directory() -> Result<()> {

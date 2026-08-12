@@ -5,7 +5,8 @@ A small CLI for managing [Jujutsu](https://github.com/jj-vcs/jj) workspaces with
 When run inside [Herdr](https://herdr.dev), `jjws` creates tabs through Herdr's socket-backed CLI API.
 
 - **Creates workspaces** outside the repo tree (under `<data-dir>/jjws` by default), with auto-generated animal names
-- **Symlinks jj-ignored paths** (e.g. `node_modules/`, `build/`) from the source workspace so tools just work
+- **Symlinks jj-ignored paths** (e.g. `build/`, `.env`) from the source workspace so tools just work
+- **Hard-links `node_modules/`** into a real directory instead, because npm refuses to install into a symlinked one. Files share inodes, so this costs no disk space, and an `npm install` in one workspace leaves the others alone
 - **Opens a Herdr tab** in the new workspace (opt-out with `--no-tab`), optionally running a command
 - **Opens workspace tabs** with `tab`
 - **Lists all workspaces or one selected workspace**, with optional path-only output
