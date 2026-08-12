@@ -11,7 +11,7 @@ use std::{
 use anyhow::{Context, Result, bail};
 use dirs::data_dir;
 use herdr::open_tab;
-use ignored::symlink_ignored_paths;
+use ignored::{LinkSummary, link_ignored_paths};
 use jj::{
     ForgetDeletion, LoadedWorkspace, create_workspace, forget_workspaces, list_workspaces,
     load_workspace, locate_workspace, repo_root_from_repo_path, repo_workspace_dir,
@@ -29,6 +29,35 @@ pub struct ListOptions {
     pub porcelain: bool,
     pub path_only: bool,
     pub workspace: Option<String>,
+}
+
+fn noun<'a>(count: usize, singular: &'a str, plural: &'a str) -> &'a str {
+    if count == 1 { singular } else { plural }
+}
+
+fn describe_links(summary: &LinkSummary) -> Vec<String> {
+    let mut lines = vec![format!(
+        "Symlinked {} jj-ignored {}",
+        summary.symlinked,
+        noun(summary.symlinked, "path", "paths")
+    )];
+    if summary.hardlink_trees > 0 {
+        lines.push(format!(
+            "Hard-linked {} {} into {} {}",
+            summary.hardlinked_files,
+            noun(summary.hardlinked_files, "file", "files"),
+            summary.hardlink_trees,
+            noun(summary.hardlink_trees, "directory", "directories"),
+        ));
+    }
+    if summary.copied_files > 0 {
+        lines.push(format!(
+            "Copied {} {} that could not be hard-linked",
+            summary.copied_files,
+            noun(summary.copied_files, "file", "files")
+        ));
+    }
+    lines
 }
 
 fn open_tab_or_warn(path: &Path, repo_root: &Path, command: Option<&str>) -> bool {
@@ -57,7 +86,7 @@ pub async fn new_workspace(options: NewOptions, workspace_root: Option<&Path>) -
 
     create_workspace(&ctx.current, &destination, workspace_name).await?;
 
-    let symlinked = symlink_ignored_paths(
+    let summary = link_ignored_paths(
         ctx.current.workspace.workspace_root(),
         &destination,
         &ctx.current.repo,
@@ -68,8 +97,9 @@ pub async fn new_workspace(options: NewOptions, workspace_root: Option<&Path>) -
         && open_tab_or_warn(&destination, &ctx.repo_root, options.command.as_deref());
 
     println!("Created workspace at {}", destination.display());
-    let noun = if symlinked == 1 { "path" } else { "paths" };
-    println!("Symlinked {symlinked} jj-ignored {noun}");
+    for line in describe_links(&summary) {
+        println!("{line}");
+    }
     if !options.no_tab {
         println!(
             "{}",
