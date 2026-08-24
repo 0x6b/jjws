@@ -11,7 +11,7 @@ use std::{
 use anyhow::{Context, Result, bail};
 use dirs::data_dir;
 use herdr::open_tab;
-use ignored::{LinkSummary, link_ignored_paths};
+use ignored::{LinkSummary, copy_worktree_included_files, link_ignored_paths};
 use jj::{
     ForgetDeletion, LoadedWorkspace, create_workspace, forget_workspaces, list_workspaces,
     load_workspace, locate_workspace, repo_root_from_repo_path, repo_workspace_dir,
@@ -86,6 +86,13 @@ pub async fn new_workspace(options: NewOptions, workspace_root: Option<&Path>) -
 
     create_workspace(&ctx.current, &destination, workspace_name).await?;
 
+    let destination_workspace = load_workspace(&destination).await?;
+    let included_files = copy_worktree_included_files(
+        &ctx.repo_root,
+        &destination,
+        &destination_workspace.repo,
+        destination_workspace.workspace.workspace_name(),
+    )?;
     let summary = link_ignored_paths(
         ctx.current.workspace.workspace_root(),
         &destination,
@@ -97,6 +104,13 @@ pub async fn new_workspace(options: NewOptions, workspace_root: Option<&Path>) -
         && open_tab_or_warn(&destination, &ctx.repo_root, options.command.as_deref());
 
     println!("Created workspace at {}", destination.display());
+    if included_files > 0 {
+        println!(
+            "Copied {} {} listed in .worktreeinclude",
+            included_files,
+            noun(included_files, "file", "files")
+        );
+    }
     for line in describe_links(&summary) {
         println!("{line}");
     }

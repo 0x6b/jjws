@@ -31,6 +31,59 @@ pub struct LinkSummary {
     pub copied_files: usize,
 }
 
+pub fn copy_worktree_included_files(
+    source_root: &Path,
+    destination_root: &Path,
+    repo: &Arc<ReadonlyRepo>,
+    workspace_name: &WorkspaceName,
+) -> Result<usize> {
+    let include_file = source_root.join(".worktreeinclude");
+    if !include_file.is_file() {
+        return Ok(0);
+    }
+
+    let tracked_paths = collect_tracked_paths(repo, workspace_name)?;
+    let base_ignores = load_base_ignores(repo)?;
+    let includes = GitIgnoreFile::empty().chain_with_file(RepoPath::root(), include_file)?;
+    let paths = collect_worktree_included_paths(
+        source_root,
+        &tracked_paths,
+        &base_ignores,
+        &includes,
+    )?;
+
+    copy_worktree_included_paths(source_root, destination_root, &paths)
+}
+
+fn copy_worktree_included_paths(
+    source_root: &Path,
+    destination_root: &Path,
+    paths: &[PathBuf],
+) -> Result<usize> {
+    paths.iter().try_fold(0, |copied, relative_path| {
+        let destination_path = destination_root.join(relative_path);
+        // A tracked checkout or an earlier setup step owns an existing path.
+        // Never replace it with local contents from another workspace.
+        if destination_path.symlink_metadata().is_ok() {
+            return Ok(copied);
+        }
+        if let Some(parent) = destination_path.parent() {
+            create_dir_all(parent)
+                .with_context(|| format!("failed to create {}", parent.display()))?;
+        }
+        let source_path = source_root.join(relative_path);
+        if source_path.symlink_metadata()?.file_type().is_symlink() {
+            let target = read_link(&source_path)
+                .with_context(|| format!("failed to read {}", source_path.display()))?;
+            create_symlink(&target, &destination_path, source_path.is_dir())?;
+        } else {
+            copy(&source_path, &destination_path)
+                .with_context(|| format!("failed to create {}", destination_path.display()))?;
+        }
+        Ok(copied + 1)
+    })
+}
+
 pub fn link_ignored_paths(
     source_root: &Path,
     destination_root: &Path,
@@ -143,6 +196,105 @@ fn collect_ignored_paths(
         &mut ignored_paths,
     )?;
     Ok(ignored_paths)
+}
+
+fn collect_worktree_included_paths(
+    source_root: &Path,
+    tracked_paths: &TrackedPaths,
+    base_ignores: &Arc<GitIgnoreFile>,
+    includes: &Arc<GitIgnoreFile>,
+) -> Result<Vec<PathBuf>> {
+    let mut paths = Vec::new();
+    walk_worktree_included_paths(
+        source_root,
+        source_root,
+        "",
+        false,
+        false,
+        tracked_paths,
+        base_ignores,
+        includes,
+        &mut paths,
+    )?;
+    Ok(paths)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn walk_worktree_included_paths(
+    source_root: &Path,
+    current_dir: &Path,
+    relative_dir: &str,
+    parent_ignored: bool,
+    parent_included: bool,
+    tracked_paths: &TrackedPaths,
+    inherited_ignores: &Arc<GitIgnoreFile>,
+    includes: &Arc<GitIgnoreFile>,
+    paths: &mut Vec<PathBuf>,
+) -> Result<()> {
+    let current_ignores =
+        load_directory_gitignore(current_dir, relative_dir, &inherited_ignores.clone())?;
+    let mut entries: Vec<DirEntry> = read_dir(current_dir)
+        .with_context(|| format!("failed to read {}", current_dir.display()))?
+        .collect::<io::Result<_>>()
+        .with_context(|| format!("failed to read {}", current_dir.display()))?;
+    entries.sort_by_key(DirEntry::file_name);
+
+    for entry in entries {
+        let file_name = entry.file_name();
+        if should_skip_root_entry(source_root, current_dir, &file_name) {
+            continue;
+        }
+        let file_name = file_name
+            .to_str()
+            .context("encountered a non-UTF-8 path while scanning .worktreeinclude files")?;
+        let source_path = entry.path();
+        let file_type = entry
+            .file_type()
+            .with_context(|| format!("failed to read {}", source_path.display()))?;
+        let is_dir = file_type.is_dir();
+        let mut relative_path = String::with_capacity(relative_dir.len() + file_name.len() + 1);
+        if !relative_dir.is_empty() {
+            relative_path.push_str(relative_dir);
+            relative_path.push('/');
+        }
+        relative_path.push_str(file_name);
+
+        let repo_path = RepoPath::from_internal_string(&relative_path)?;
+        let is_ignored = parent_ignored
+            || if is_dir {
+                current_ignores.matches_dir(repo_path)
+            } else {
+                current_ignores.matches_file(repo_path)
+            };
+        let is_included = parent_included
+            || if is_dir {
+                includes.matches_dir(repo_path)
+            } else {
+                includes.matches_file(repo_path)
+            };
+
+        if is_dir {
+            walk_worktree_included_paths(
+                source_root,
+                &source_path,
+                &relative_path,
+                is_ignored,
+                is_included,
+                tracked_paths,
+                &current_ignores,
+                includes,
+                paths,
+            )?;
+        } else if (file_type.is_file() || file_type.is_symlink())
+            && is_ignored
+            && is_included
+            && !tracked_paths.contains(&relative_path)
+        {
+            paths.push(PathBuf::from(relative_path));
+        }
+    }
+
+    Ok(())
 }
 
 fn walk_ignored_paths(
@@ -465,6 +617,99 @@ mod tests {
         };
         let ignored_paths = collect_ignored_paths(root, &tracked_paths, &GitIgnoreFile::empty())?;
         assert_eq!(ignored_paths, vec![PathBuf::from("build/cache.bin")]);
+        Ok(())
+    }
+
+    #[test]
+    fn worktreeinclude_uses_gitignore_patterns_and_copies_only_ignored_untracked_files()
+    -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let root = temp_dir.path();
+        write(
+            root.join(".gitignore"),
+            "*.local\nconfig/*.json\ncache/\nlinks/*\n",
+        )?;
+        write(
+            root.join(".worktreeinclude"),
+            "# local setup\n*.local\n/config/*.json\n!config/skip.json\ncache/\nlinks/*\nREADME.md\n",
+        )?;
+        write(root.join("env.local"), "env")?;
+        create_dir_all(root.join("nested").join("config"))?;
+        write(root.join("nested").join("app.local"), "nested")?;
+        write(root.join("nested").join("config").join("nested.json"), "nested")?;
+        create_dir_all(root.join("config"))?;
+        write(root.join("config").join("secrets.json"), "secret")?;
+        write(root.join("config").join("skip.json"), "skip")?;
+        create_dir_all(root.join("cache").join("deep"))?;
+        write(root.join("cache").join("deep").join("state.bin"), "state")?;
+        create_dir_all(root.join("links"))?;
+        #[cfg(unix)]
+        symlink("../env.local", root.join("links").join("env"))?;
+        write(root.join("README.md"), "tracked or ordinary untracked")?;
+        write(root.join("tracked.local"), "tracked")?;
+
+        let tracked = TrackedPaths {
+            tracked_paths: HashSet::from(["tracked.local".into()]),
+            tracked_dirs: HashSet::new(),
+        };
+        let ignores = GitIgnoreFile::empty().chain_with_file(
+            RepoPath::root(),
+            root.join(".gitignore"),
+        )?;
+        let includes = GitIgnoreFile::empty().chain_with_file(
+            RepoPath::root(),
+            root.join(".worktreeinclude"),
+        )?;
+
+        let paths = collect_worktree_included_paths(root, &tracked, &ignores, &includes)?;
+        let mut expected = vec![
+            PathBuf::from("cache/deep/state.bin"),
+            PathBuf::from("config/secrets.json"),
+            PathBuf::from("env.local"),
+            PathBuf::from("nested/app.local"),
+        ];
+        #[cfg(unix)]
+        expected.push(PathBuf::from("links/env"));
+        expected.sort();
+        assert_eq!(paths, expected);
+        Ok(())
+    }
+
+    #[test]
+    fn copying_worktreeinclude_paths_preserves_symlinks_and_never_overwrites() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let source = temp_dir.path().join("source");
+        let destination = temp_dir.path().join("destination");
+        create_dir_all(source.join("config"))?;
+        create_dir_all(destination.join("config"))?;
+        write(source.join("config").join("new.env"), "source")?;
+        write(source.join("config").join("existing.env"), "source")?;
+        write(destination.join("config").join("existing.env"), "destination")?;
+        #[cfg(unix)]
+        symlink("new.env", source.join("config").join("linked.env"))?;
+
+        let mut paths = vec![
+            PathBuf::from("config/new.env"),
+            PathBuf::from("config/existing.env"),
+        ];
+        #[cfg(unix)]
+        paths.push(PathBuf::from("config/linked.env"));
+        let copied = copy_worktree_included_paths(&source, &destination, &paths)?;
+
+        #[cfg(unix)]
+        assert_eq!(copied, 2);
+        #[cfg(not(unix))]
+        assert_eq!(copied, 1);
+        assert_eq!(read_to_string(destination.join("config").join("new.env"))?, "source");
+        assert_eq!(
+            read_to_string(destination.join("config").join("existing.env"))?,
+            "destination"
+        );
+        #[cfg(unix)]
+        assert_eq!(
+            read_link(destination.join("config").join("linked.env"))?,
+            PathBuf::from("new.env")
+        );
         Ok(())
     }
 }

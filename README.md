@@ -5,6 +5,7 @@ A small CLI for managing [Jujutsu](https://github.com/jj-vcs/jj) workspaces with
 When run inside [Herdr](https://herdr.dev), `jjws` creates tabs through Herdr's socket-backed CLI API.
 
 - **Creates workspaces** outside the repo tree (under `<data-dir>/jjws` by default), with auto-generated animal names
+- **Copies gitignored files selected by a repository-root `.worktreeinclude`**, using gitignore-style patterns
 - **Symlinks jj-ignored paths** (e.g. `build/`, `.env`) from the source workspace so tools just work
 - **Hard-links `node_modules/`** into a real directory instead, because npm refuses to install into a symlinked one. Files share inodes, so this costs no disk space, and an `npm install` in one workspace leaves the others alone
 - **Opens a Herdr tab** in the new workspace (opt-out with `--no-tab`), optionally running a command
@@ -51,6 +52,17 @@ $ jjws ls
 $ jjws ls <workspace>
 $ jjws ls --path-only
 $ jjws ls --path-only <workspace>
+```
+
+To copy local files such as environment configuration into every new workspace,
+add a `.worktreeinclude` at the repository root. Patterns use `.gitignore` syntax,
+including comments, directory patterns, globs, and `!` negation. Only files that
+both match and are ignored by Git are copied; tracked files are never copied.
+
+```gitignore
+.env.local
+config/secrets.json
+certs/local/**
 ```
 
 ## Install
