@@ -91,10 +91,13 @@ fn is_available() -> bool {
     var_os("HERDR_ENV").is_some() && var_os("HERDR_SOCKET_PATH").is_some()
 }
 
+/// Herdr derives `HERDR_BIN_PATH` from `/proc/self/exe`, which Linux suffixes with
+/// ` (deleted)` once the running binary is replaced. Fall back to a `PATH` lookup
+/// whenever the recorded path no longer names a file.
 fn herdr_bin() -> String {
     var("HERDR_BIN_PATH")
         .ok()
-        .filter(|path| !path.is_empty())
+        .filter(|path| !path.is_empty() && Path::new(path).is_file())
         .unwrap_or_else(|| "herdr".into())
 }
 
