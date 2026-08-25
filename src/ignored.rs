@@ -41,27 +41,29 @@ pub fn link_ignored_paths(
     let base_ignores = load_base_ignores(repo)?;
     let ignored_paths = collect_ignored_paths(source_root, &tracked_paths, &base_ignores)?;
 
-    ignored_paths.iter().try_fold(LinkSummary::default(), |mut summary, rel| {
-        let destination_path = destination_root.join(rel);
-        if destination_path.symlink_metadata().is_ok() {
-            return Ok(summary);
-        }
-        if let Some(parent) = destination_path.parent() {
-            create_dir_all(parent)
-                .with_context(|| format!("failed to create {}", parent.display()))?;
-        }
-        let source_path = source_root.join(rel);
-        if wants_hardlink_tree(rel, &source_path) {
-            let counts = hardlink_tree(&source_path, &destination_path)?;
-            summary.hardlink_trees += 1;
-            summary.hardlinked_files += counts.hardlinked;
-            summary.copied_files += counts.copied;
-        } else {
-            create_symlink(&source_path, &destination_path, source_path.is_dir())?;
-            summary.symlinked += 1;
-        }
-        Ok(summary)
-    })
+    ignored_paths
+        .iter()
+        .try_fold(LinkSummary::default(), |mut summary, rel| {
+            let destination_path = destination_root.join(rel);
+            if destination_path.symlink_metadata().is_ok() {
+                return Ok(summary);
+            }
+            if let Some(parent) = destination_path.parent() {
+                create_dir_all(parent)
+                    .with_context(|| format!("failed to create {}", parent.display()))?;
+            }
+            let source_path = source_root.join(rel);
+            if wants_hardlink_tree(rel, &source_path) {
+                let counts = hardlink_tree(&source_path, &destination_path)?;
+                summary.hardlink_trees += 1;
+                summary.hardlinked_files += counts.hardlinked;
+                summary.copied_files += counts.copied;
+            } else {
+                create_symlink(&source_path, &destination_path, source_path.is_dir())?;
+                summary.symlinked += 1;
+            }
+            Ok(summary)
+        })
 }
 
 fn collect_tracked_paths(
