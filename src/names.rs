@@ -1,20 +1,114 @@
 use std::time::SystemTime;
 
 const ADJECTIVES: &[&str] = &[
-    "bold", "brave", "bright", "calm", "clever", "cool", "daring", "eager", "fair", "fierce",
-    "fleet", "free", "gentle", "glad", "golden", "grand", "happy", "hardy", "keen", "kind",
-    "lively", "lucky", "mellow", "merry", "mighty", "noble", "plucky", "proud", "quick", "quiet",
-    "rapid", "ready", "sharp", "sleek", "sleepy", "smooth", "snappy", "snowy", "spry", "steady",
-    "stoic", "sunny", "swift", "tender", "tidy", "vivid", "warm", "wild", "witty", "zesty",
+    "agile", "amber", "bold", "brave", "breezy", "bright", "brisk", "calm", "cheerful", "clever",
+    "cool", "cosmic", "crafty", "curious", "daring", "dazzling", "eager", "earnest", "electric",
+    "fair", "fearless", "fierce", "fleet", "fluffy", "friendly", "gentle", "glad", "glowing",
+    "golden", "graceful", "happy", "jolly", "joyful", "keen", "kind", "lively", "lucky", "mellow",
+    "merry", "mighty", "noble", "peachy", "playful", "proud", "quick", "radiant", "rapid", "ready",
+    "rosy", "serene", "sharp", "silver", "sleepy", "smooth", "snowy", "spirited", "spry",
+    "stellar", "stoic", "swift", "tender", "tidy", "tranquil", "vibrant", "vivid", "wise", "witty",
+    "zestful", "zesty",
 ];
 
 const ANIMALS: &[&str] = &[
-    "alpaca", "badger", "bear", "bison", "bobcat", "bunny", "caribou", "cat", "cobra", "condor",
-    "corgi", "crane", "crow", "deer", "dingo", "eagle", "falcon", "ferret", "finch", "fox",
-    "gecko", "goose", "hawk", "heron", "horse", "husky", "ibis", "impala", "jackal", "jaguar",
-    "koala", "lemur", "lion", "llama", "lynx", "moose", "newt", "okapi", "otter", "owl", "panda",
-    "parrot", "puma", "quail", "raven", "robin", "salmon", "seal", "stork", "swan", "tiger",
-    "toad", "viper", "whale", "wolf",
+    "alpaca",
+    "anteater",
+    "antelope",
+    "armadillo",
+    "axolotl",
+    "badger",
+    "bear",
+    "bison",
+    "bobcat",
+    "buffalo",
+    "bunny",
+    "camel",
+    "capybara",
+    "caribou",
+    "cardinal",
+    "cat",
+    "chamois",
+    "cheetah",
+    "chipmunk",
+    "cobra",
+    "condor",
+    "corgi",
+    "coyote",
+    "crane",
+    "crow",
+    "dingo",
+    "dolphin",
+    "donkey",
+    "dormouse",
+    "dragonfly",
+    "duck",
+    "eagle",
+    "elephant",
+    "elk",
+    "falcon",
+    "ferret",
+    "finch",
+    "flamingo",
+    "fox",
+    "gazelle",
+    "gecko",
+    "goose",
+    "gorilla",
+    "hamster",
+    "hawk",
+    "hedgehog",
+    "heron",
+    "hippo",
+    "husky",
+    "hyena",
+    "ibis",
+    "impala",
+    "jackal",
+    "jaguar",
+    "kangaroo",
+    "kingfisher",
+    "kiwi",
+    "koala",
+    "lemur",
+    "leopard",
+    "llama",
+    "lynx",
+    "manatee",
+    "meerkat",
+    "narwhal",
+    "newt",
+    "octopus",
+    "okapi",
+    "opossum",
+    "orca",
+    "ostrich",
+    "otter",
+    "owl",
+    "panda",
+    "parrot",
+    "penguin",
+    "pheasant",
+    "platypus",
+    "porcupine",
+    "puma",
+    "quail",
+    "rabbit",
+    "raccoon",
+    "raven",
+    "reindeer",
+    "rhino",
+    "squirrel",
+    "stork",
+    "swan",
+    "tiger",
+    "toad",
+    "toucan",
+    "turtle",
+    "walrus",
+    "whale",
+    "wolf",
+    "wombat",
 ];
 
 pub fn generate(exists: impl Fn(&str) -> bool) -> String {
@@ -51,6 +145,47 @@ pub fn generate(exists: impl Fn(&str) -> bool) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn edit_distance(left: &str, right: &str) -> usize {
+        let mut distances: Vec<usize> = (0..=right.len()).collect();
+
+        for (left_index, left_byte) in left.bytes().enumerate() {
+            let mut previous = distances[0];
+            distances[0] = left_index + 1;
+            for (right_index, right_byte) in right.bytes().enumerate() {
+                let old = distances[right_index + 1];
+                distances[right_index + 1] = (distances[right_index + 1] + 1)
+                    .min(distances[right_index] + 1)
+                    .min(previous + usize::from(left_byte != right_byte));
+                previous = old;
+            }
+        }
+
+        distances[right.len()]
+    }
+
+    fn assert_names_are_distinct(names: &[&str]) {
+        for (index, left) in names.iter().enumerate() {
+            for right in &names[index + 1..] {
+                assert!(
+                    edit_distance(left, right) > 2,
+                    "names are within edit distance 2: {left}, {right}"
+                );
+                assert!(
+                    left.len() != right.len()
+                        || left.as_bytes().first() != right.as_bytes().first()
+                        || left.as_bytes().last() != right.as_bytes().last(),
+                    "same-length names have matching first and last letters: {left}, {right}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn names_are_distinct() {
+        assert_names_are_distinct(ADJECTIVES);
+        assert_names_are_distinct(ANIMALS);
+    }
 
     #[test]
     fn generate_returns_adjective_hyphen_animal() {
