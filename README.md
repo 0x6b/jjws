@@ -62,8 +62,17 @@ $ cargo install --git https://github.com/0x6b/jjws
 ## Fish Completions
 
 ```console
-$ ln -s (realpath completions/jjws.fish) ~/.config/fish/completions/jjws.fish
+$ ln -s (realpath completions/jjws.fish) ~/.config/fish/conf.d/jjws.fish
 ```
+
+This also adds workspace paths to `cd` completion, so `cd <Tab>` can replace:
+
+```console
+$ cd -- "$(jjws list --path-only <workspace>)"
+```
+
+Installing under `conf.d` loads the `cd` extension when Fish starts. If the completion
+was previously linked under `completions`, remove that link to avoid loading it twice.
 
 ## License
 
