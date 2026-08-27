@@ -1,8 +1,10 @@
 # Fish completions for jjws
 
-# Helper: extract workspace names with descriptions from `jjws list --porcelain`
+# Helper: extract workspace names or paths with descriptions from `jjws list --porcelain`
 # Porcelain format: "{marker} {name}\t{created}\t{modified}\t{path}{suffix}"
 function __jjws_workspaces
+    set -l output $argv[1]
+
     jjws list --porcelain 2>/dev/null | while read -l line
         set -l marker (string sub -l 1 -- $line)
         set -l rest (string sub -s 3 -- $line)
@@ -13,10 +15,13 @@ function __jjws_workspaces
         set -l path_with_suffix $fields[4]
 
         set -l desc
-        if string match -q '* \[repo-host\]' -- $path_with_suffix
+        set -l path $path_with_suffix
+        if string match -qr ' \[repo-host\]$' -- $path_with_suffix
             set desc "[repo-host]"
-        else if string match -q '* \[out-of-control\]' -- $path_with_suffix
+            set path (string replace -r ' \[repo-host\]$' '' -- $path_with_suffix)
+        else if string match -qr ' \[out-of-control\]$' -- $path_with_suffix
             set desc "[out-of-control]"
+            set path (string replace -r ' \[out-of-control\]$' '' -- $path_with_suffix)
         end
 
         if test -n "$modified"
@@ -31,11 +36,19 @@ function __jjws_workspaces
             if test -n "$desc"
                 set desc "current, $desc"
             else
-                set desc "current"
+                set desc current
             end
         end
 
-        if test -n "$desc"
+        if test "$output" = path
+            test "$marker" = '*'; and continue
+            test -d "$path"; or continue
+            if test -n "$desc"
+                printf '%s\t%s\n' $path $desc
+            else
+                printf '%s\tjj workspace\n' $path
+            end
+        else if test -n "$desc"
             printf '%s\t%s\n' $name $desc
         else
             echo $name
@@ -76,4 +89,7 @@ complete -c jjws -n '__fish_seen_subcommand_from list ls' -l path-only -d 'Print
 complete -c jjws -n '__fish_seen_subcommand_from list ls' -a '(__jjws_workspaces)'
 
 # help: complete subcommand names
-complete -c jjws -n '__fish_seen_subcommand_from help' -a 'new tab list forget' -d 'Subcommand'
+complete -c jjws -n '__fish_seen_subcommand_from help' -a 'new tab list forget' -d Subcommand
+
+# cd: offer workspace paths in addition to regular directory completions
+complete -c cd -a '(__jjws_workspaces path)'
