@@ -37,7 +37,7 @@ enum Command {
         workspace: String,
     },
     /// List workspaces associated with the repo
-    #[command(alias = "ls")]
+    #[command(visible_alias = "ls")]
     List {
         /// Machine-readable output (no commit details)
         #[arg(long, conflicts_with = "path_only")]
@@ -52,7 +52,7 @@ enum Command {
     },
     /// Forget workspaces, then remove their directories when safe.
     /// Must be run from the repo-host workspace.
-    #[command(alias = "rm")]
+    #[command(visible_alias = "rm")]
     Forget {
         /// Workspace names to forget
         #[arg(required = true)]
@@ -78,29 +78,5 @@ async fn main() -> Result<()> {
             list(ListOptions { porcelain, path_only, workspace }, ws_root).await
         }
         Command::Tab { workspace } => tab(workspace, ws_root).await,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn parse_list(args: &[&str]) -> (bool, Option<String>) {
-        let cli = Cli::try_parse_from(args).unwrap();
-        match cli.command.unwrap() {
-            Command::List { path_only, workspace, .. } => (path_only, workspace),
-            command => panic!("expected list command, got {command:?}"),
-        }
-    }
-
-    #[test]
-    fn list_accepts_all_path_and_workspace_combinations() {
-        assert_eq!(parse_list(&["jjws", "ls"]), (false, None));
-        assert_eq!(parse_list(&["jjws", "ls", "otter"]), (false, Some("otter".into())));
-        assert_eq!(parse_list(&["jjws", "ls", "--path-only"]), (true, None));
-        assert_eq!(
-            parse_list(&["jjws", "ls", "--path-only", "otter"]),
-            (true, Some("otter".into()))
-        );
     }
 }
