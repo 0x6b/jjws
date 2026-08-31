@@ -37,7 +37,7 @@ enum Command {
         workspace: String,
     },
     /// List workspaces associated with the repo
-    #[command(alias = "ls")]
+    #[command(visible_alias = "ls")]
     List {
         /// Machine-readable output (no commit details)
         #[arg(long, conflicts_with = "path_only")]
@@ -52,7 +52,7 @@ enum Command {
     },
     /// Forget workspaces, then remove their directories when safe.
     /// Must be run from the repo-host workspace.
-    #[command(alias = "rm")]
+    #[command(visible_alias = "rm")]
     Forget {
         /// Workspace names to forget
         #[arg(required = true)]

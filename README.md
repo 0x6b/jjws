@@ -23,9 +23,9 @@ Usage: jjws [OPTIONS] [COMMAND]
 Commands:
   new     Create a new workspace and open it in Herdr with auto-generated name
   tab     Open a workspace in a new Herdr tab
-  list    List workspaces associated with the repo
+  list    List workspaces associated with the repo [alias: ls]
   forget  Forget workspaces, then remove their directories when safe. Must be
-          run from the repo-host workspace
+          run from the repo-host workspace [alias: rm]
   help    Print this message or the help of the given subcommand(s)
 
 Options:
