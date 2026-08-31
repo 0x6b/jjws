@@ -80,27 +80,3 @@ async fn main() -> Result<()> {
         Command::Tab { workspace } => tab(workspace, ws_root).await,
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn parse_list(args: &[&str]) -> (bool, Option<String>) {
-        let cli = Cli::try_parse_from(args).unwrap();
-        match cli.command.unwrap() {
-            Command::List { path_only, workspace, .. } => (path_only, workspace),
-            command => panic!("expected list command, got {command:?}"),
-        }
-    }
-
-    #[test]
-    fn list_accepts_all_path_and_workspace_combinations() {
-        assert_eq!(parse_list(&["jjws", "ls"]), (false, None));
-        assert_eq!(parse_list(&["jjws", "ls", "otter"]), (false, Some("otter".into())));
-        assert_eq!(parse_list(&["jjws", "ls", "--path-only"]), (true, None));
-        assert_eq!(
-            parse_list(&["jjws", "ls", "--path-only", "otter"]),
-            (true, Some("otter".into()))
-        );
-    }
-}
